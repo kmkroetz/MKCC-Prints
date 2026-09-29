@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111111">
+  <link rel="manifest" href="./manifest.json">
+  <title>MKCC Prints</title>
+  <style>
+    :root { font-family: Arial, sans-serif; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background:#111; color:#fff; }
+    .wrap { max-width: 520px; margin:auto; padding:24px; }
+    .card { background:#1d1d1d; border:1px solid #333; border-radius:16px; padding:22px; margin-top:20px; }
+    h1 { margin:0 0 8px; font-size:32px; }
+    p { color:#bbb; }
+    input, button { width:100%; padding:13px; margin-top:10px; border-radius:10px; border:1px solid #444; font-size:16px; }
+    input { background:#101010; color:#fff; }
+    button { background:#fff; color:#111; font-weight:700; cursor:pointer; }
+    button.secondary { background:#292929; color:#fff; }
+    .hidden { display:none !important; }
+    .status { margin-top:14px; min-height:22px; color:#ffcc66; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px; }
+    .tile { padding:18px; background:#242424; border-radius:14px; border:1px solid #333; }
+    .tile strong { display:block; font-size:20px; margin-bottom:5px; }
+    .small { font-size:13px; color:#999; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section id="loginView">
+      <div class="card">
+        <h1>MKCC Prints</h1>
+        <p>3D printing management system</p>
+        <input id="email" type="email" placeholder="Email">
+        <input id="password" type="password" placeholder="Password">
+        <button id="loginBtn">Log In</button>
+        <button id="signupBtn" class="secondary">Create Account</button>
+        <div id="loginStatus" class="status"></div>
+      </div>
+    </section>
+
+    <section id="appView" class="hidden">
+      <div class="card">
+        <h1>MKCC Prints</h1>
+        <p id="welcome">Dashboard</p>
+        <div class="grid">
+          <div class="tile"><strong>0</strong><span class="small">Open Orders</span></div>
+          <div class="tile"><strong>0</strong><span class="small">Print Jobs</span></div>
+          <div class="tile"><strong>0</strong><span class="small">Printers</span></div>
+          <div class="tile"><strong>0</strong><span class="small">Spools</span></div>
+        </div>
+        <button id="logoutBtn" class="secondary">Log Out</button>
+        <div id="appStatus" class="status"></div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    import {
+      getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+      createUserWithEmailAndPassword, signOut
+    } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
+
+    // Replace these values with the Firebase Web App config from your MKCC Prints project.
+    const firebaseConfig = {
+      apiKey: "PASTE_YOUR_API_KEY_HERE",
+      authDomain: "mkcc-prints-bb164.firebaseapp.com",
+      projectId: "mkcc-prints-bb164",
+      storageBucket: "mkcc-prints-bb164.firebasestorage.app",
+      messagingSenderId: "218475659416",
+      appId: "PASTE_YOUR_APP_ID_HERE"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    const $ = id => document.getElementById(id);
+    const setStatus = (msg, error=false) => {
+      $("loginStatus").textContent = msg;
+      $("loginStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    };
+
+    $("loginBtn").addEventListener("click", async () => {
+      setStatus("Logging in...");
+      try {
+        await signInWithEmailAndPassword($("email").value.trim(), $("password").value);
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    });
+
+    $("signupBtn").addEventListener("click", async () => {
+      setStatus("Creating account...");
+      try {
+        await createUserWithEmailAndPassword($("email").value.trim(), $("password").value);
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    });
+
+    $("logoutBtn").addEventListener("click", () => signOut(auth));
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        $("loginView").classList.add("hidden");
+        $("appView").classList.remove("hidden");
+        $("welcome").textContent = `Logged in as ${user.email}`;
+      } else {
+        $("appView").classList.add("hidden");
+        $("loginView").classList.remove("hidden");
+      }
+    });
+  </script>
+</body>
+</html>
