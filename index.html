@@ -9,8 +9,8 @@
   <style>
     :root { font-family: Arial, sans-serif; color-scheme: dark; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background:#111; color:#fff; }
-    .wrap { max-width: 520px; margin:auto; padding:24px; }
+    body { margin:0; min-height:100vh; background:#111; color:#fff; }
+    .wrap { max-width:520px; margin:auto; padding:24px; }
     .card { background:#1d1d1d; border:1px solid #333; border-radius:16px; padding:22px; margin-top:20px; }
     h1 { margin:0 0 8px; font-size:32px; }
     p { color:#bbb; }
@@ -19,7 +19,7 @@
     button { background:#fff; color:#111; font-weight:700; cursor:pointer; }
     button.secondary { background:#292929; color:#fff; }
     .hidden { display:none !important; }
-    .status { margin-top:14px; min-height:22px; color:#ffcc66; }
+    .status { margin-top:14px; min-height:22px; color:#ffcc66; line-height:1.4; }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px; }
     .tile { padding:18px; background:#242424; border-radius:14px; border:1px solid #333; }
     .tile strong { display:block; font-size:20px; margin-bottom:5px; }
@@ -32,8 +32,8 @@
       <div class="card">
         <h1>MKCC Prints</h1>
         <p>3D printing management system</p>
-        <input id="email" type="email" placeholder="Email">
-        <input id="password" type="password" placeholder="Password">
+        <input id="email" type="email" placeholder="Email" autocomplete="email">
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password">
         <button id="loginBtn">Log In</button>
         <button id="signupBtn" class="secondary">Create Account</button>
         <div id="loginStatus" class="status"></div>
@@ -63,14 +63,14 @@
       createUserWithEmailAndPassword, signOut
     } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
 
-    // Replace these values with the Firebase Web App config from your MKCC Prints project.
     const firebaseConfig = {
-      apiKey: "PASTE_YOUR_API_KEY_HERE",
+      apiKey: "AIzaSyB8agdN8iMc06jfb17Hype0BznfEQeLdG",
       authDomain: "mkcc-prints-bb164.firebaseapp.com",
       projectId: "mkcc-prints-bb164",
       storageBucket: "mkcc-prints-bb164.firebasestorage.app",
-      messagingSenderId: "218475659416",
-      appId: "PASTE_YOUR_APP_ID_HERE"
+      messagingSenderId: "218476559416",
+      appId: "1:218476559416:web:40a2dfe0c70fdced6cbacd",
+      measurementId: "G-90KJYY7ZHK"
     };
 
     const app = initializeApp(firebaseConfig);
@@ -86,6 +86,7 @@
       setStatus("Logging in...");
       try {
         await signInWithEmailAndPassword($("email").value.trim(), $("password").value);
+        setStatus("");
       } catch (e) {
         setStatus(e.message, true);
       }
@@ -95,6 +96,7 @@
       setStatus("Creating account...");
       try {
         await createUserWithEmailAndPassword($("email").value.trim(), $("password").value);
+        setStatus("");
       } catch (e) {
         setStatus(e.message, true);
       }
