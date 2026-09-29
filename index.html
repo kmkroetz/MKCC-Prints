@@ -51,17 +51,21 @@
           <div class="tile"><strong>0</strong><span class="small">Spools</span></div>
         </div>
         <button id="logoutBtn" class="secondary">Log Out</button>
-        <div id="appStatus" class="status"></div>
       </div>
     </section>
   </main>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    // Firebase currently recommends matching CDN versions across Firebase modules.
+    // This app uses the current Firebase JS SDK version.
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import {
-      getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-      createUserWithEmailAndPassword, signOut
-    } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
+      getAuth,
+      onAuthStateChanged,
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      signOut
+    } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyB8agdN8iMc06jfb17Hype0BznfEQeLdG",
@@ -83,22 +87,40 @@
     };
 
     $("loginBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      if (!email || !password) {
+        setStatus("Enter your email and password.", true);
+        return;
+      }
       setStatus("Logging in...");
       try {
-        await signInWithEmailAndPassword($("email").value.trim(), $("password").value);
+        await signInWithEmailAndPassword(auth, email, password);
         setStatus("");
       } catch (e) {
-        setStatus(e.message, true);
+        console.error(e);
+        setStatus(e.message || "Login failed.", true);
       }
     });
 
     $("signupBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      if (!email || !password) {
+        setStatus("Enter an email and password first.", true);
+        return;
+      }
+      if (password.length < 6) {
+        setStatus("Firebase requires a password of at least 6 characters.", true);
+        return;
+      }
       setStatus("Creating account...");
       try {
-        await createUserWithEmailAndPassword($("email").value.trim(), $("password").value);
+        await createUserWithEmailAndPassword(auth, email, password);
         setStatus("");
       } catch (e) {
-        setStatus(e.message, true);
+        console.error(e);
+        setStatus(e.message || "Account creation failed.", true);
       }
     });
 
