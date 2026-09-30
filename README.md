@@ -1,14 +1,11 @@
-# MKCC Prints
+# MKCC Prints v0.3
 
-Firebase-powered 3D printing management app.
+Firebase-backed MKCC Prints management app.
 
-## Current build
+Features:
 - Firebase Email/Password authentication
-- Firestore connection
-- Shared printer list
-- 9 default printers seeded on first login
-- Add/edit/delete printers
-- Printer status: Active / Offline / Maintenance
-
-## Firestore rules
-Copy `firestore.rules` into Firebase Console → Firestore Database → Rules and publish it before using the printer data.
+- Firestore printer management
+- Filament/spool inventory in grams
+- Actual purchase price and automatic cost-per-gram calculation
+- Seeded first spool: Inland PLA Basic White, 1000 g, $10.00
+- GitHub Pages compatible

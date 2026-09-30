@@ -69,9 +69,21 @@
             <div class="tile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
             <div class="tile"><strong id="jobsCount">0</strong><span class="small">Print Jobs</span></div>
             <div class="tile" id="printersTile"><strong id="printersCount">0</strong><span class="small">Printers</span></div>
-            <div class="tile"><strong id="spoolsCount">0</strong><span class="small">Spools</span></div>
+            <div class="tile" id="filamentTile"><strong id="spoolsCount">0</strong><span class="small">Spools</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
+          <button id="filamentBtn" class="secondary">Manage Filament</button>
+        </div>
+
+        <div id="filamentView" class="hidden">
+          <div class="topbar">
+            <h2>Filament & Spools</h2>
+            <button id="backFilamentDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Track filament by grams and actual purchase cost.</p>
+          <button id="addSpoolBtn">+ Add Spool</button>
+          <div id="filamentList"></div>
+          <div id="filamentStatus" class="status"></div>
         </div>
 
         <div id="printersView" class="hidden">
@@ -87,6 +99,21 @@
       </div>
     </section>
   </main>
+
+  <div id="spoolModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="spoolModalTitle">Add Spool</h2>
+      <input id="spoolBrand" placeholder="Brand" value="Inland">
+      <input id="spoolMaterial" placeholder="Material" value="PLA Basic">
+      <input id="spoolColor" placeholder="Color" value="White">
+      <input id="spoolWeight" type="number" min="1" step="1" placeholder="Spool weight (g)" value="1000">
+      <input id="spoolPrice" type="number" min="0" step="0.01" placeholder="Price paid ($)" value="10.00">
+      <div class="row">
+        <button id="saveSpoolBtn">Save Spool</button>
+        <button id="cancelSpoolBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <div id="printerModal" class="modal hidden">
     <div class="modal-card">
@@ -162,10 +189,16 @@
     let currentUser = null;
     let editingPrinterId = null;
     let unsubscribePrinters = null;
+    let unsubscribeSpools = null;
+    let editingSpoolId = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
       $("loginStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    };
+    const setFilamentStatus = (msg, error=false) => {
+      $("filamentStatus").textContent = msg;
+      $("filamentStatus").style.color = error ? "#ff7777" : "#ffcc66";
     };
     const setPrinterStatus = (msg, error=false) => {
       $("printerStatus").textContent = msg;
@@ -193,6 +226,15 @@
 
     $("logoutBtn").addEventListener("click", () => signOut(auth));
     $("printersBtn").addEventListener("click", openPrinters);
+    $("filamentBtn").addEventListener("click", openFilament);
+    $("filamentTile").addEventListener("click", openFilament);
+    $("backFilamentDashboardBtn").addEventListener("click", () => {
+      $("filamentView").classList.add("hidden");
+      $("dashboardView").classList.remove("hidden");
+    });
+    $("addSpoolBtn").addEventListener("click", () => openSpoolModal());
+    $("cancelSpoolBtn").addEventListener("click", closeSpoolModal);
+    $("saveSpoolBtn").addEventListener("click", saveSpool);
     $("printersTile").addEventListener("click", openPrinters);
     $("backDashboardBtn").addEventListener("click", () => {
       $("printersView").classList.add("hidden");
@@ -204,8 +246,32 @@
 
     function openPrinters() {
       $("dashboardView").classList.add("hidden");
+      $("filamentView").classList.add("hidden");
       $("printersView").classList.remove("hidden");
       loadPrinters();
+    }
+
+    function openFilament() {
+      $("dashboardView").classList.add("hidden");
+      $("printersView").classList.add("hidden");
+      $("filamentView").classList.remove("hidden");
+      loadSpools();
+    }
+
+    function openSpoolModal(spool=null) {
+      editingSpoolId = spool?.id || null;
+      $("spoolModalTitle").textContent = spool ? "Edit Spool" : "Add Spool";
+      $("spoolBrand").value = spool?.brand || "Inland";
+      $("spoolMaterial").value = spool?.material || "PLA Basic";
+      $("spoolColor").value = spool?.color || "White";
+      $("spoolWeight").value = spool?.originalGrams ?? 1000;
+      $("spoolPrice").value = spool?.pricePaid ?? 10;
+      $("spoolModal").classList.remove("hidden");
+    }
+
+    function closeSpoolModal() {
+      editingSpoolId = null;
+      $("spoolModal").classList.add("hidden");
     }
 
     function openPrinterModal(printer=null) {
@@ -230,6 +296,89 @@
           name, model, status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         })
       ));
+    }
+
+    async function seedDefaultSpool() {
+      const snap = await getDocs(collection(db, "spools"));
+      if (!snap.empty) return;
+      await setDoc(doc(db, "spools", "inland-pla-basic-white-001"), {
+        brand: "Inland",
+        material: "PLA Basic",
+        color: "White",
+        diameterMm: 1.75,
+        originalGrams: 1000,
+        remainingGrams: 1000,
+        pricePaid: 10,
+        costPerGram: 0.01,
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    function loadSpools() {
+      if (unsubscribeSpools) unsubscribeSpools();
+      setFilamentStatus("Loading spools...");
+      unsubscribeSpools = onSnapshot(collection(db, "spools"), snap => {
+        const spools = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => String(a.brand + a.material + a.color).localeCompare(String(b.brand + b.material + b.color)));
+        $("spoolsCount").textContent = spools.length;
+        renderSpools(spools);
+        setFilamentStatus(spools.length ? "" : "No spools yet.");
+      }, err => {
+        console.error(err);
+        setFilamentStatus(err.message || "Could not load spools.", true);
+      });
+    }
+
+    function renderSpools(spools) {
+      const list = $("filamentList");
+      list.innerHTML = "";
+      for (const spool of spools) {
+        const row = document.createElement("div");
+        row.className = "printer";
+        const info = document.createElement("div");
+        const cost = Number(spool.costPerGram || 0).toFixed(4);
+        info.innerHTML = `<div class="printer-name"></div><div class="printer-model"></div><div class="small"></div>`;
+        info.querySelector(".printer-name").textContent = `${spool.brand || "Unknown"} ${spool.material || ""} — ${spool.color || "No color"}`;
+        info.querySelector(".printer-model").textContent = `${Number(spool.remainingGrams || 0).toFixed(0)} g remaining of ${Number(spool.originalGrams || 0).toFixed(0)} g`;
+        info.querySelector(".small").textContent = `$${Number(spool.pricePaid || 0).toFixed(2)} paid • $${cost}/g`;
+        const actions = document.createElement("div");
+        actions.className = "printer-actions";
+        const edit = document.createElement("button"); edit.textContent = "Edit"; edit.className = "secondary";
+        edit.onclick = () => openSpoolModal(spool);
+        const del = document.createElement("button"); del.textContent = "Delete"; del.className = "danger";
+        del.onclick = async () => {
+          if (!confirm(`Delete ${spool.brand} ${spool.material} ${spool.color}?`)) return;
+          try { await deleteDoc(doc(db, "spools", spool.id)); }
+          catch (e) { console.error(e); setFilamentStatus(e.message, true); }
+        };
+        actions.append(edit, del); row.append(info, actions); list.appendChild(row);
+      }
+    }
+
+    async function saveSpool() {
+      const brand = $("spoolBrand").value.trim();
+      const material = $("spoolMaterial").value.trim();
+      const color = $("spoolColor").value.trim();
+      const originalGrams = Number($("spoolWeight").value);
+      const pricePaid = Number($("spoolPrice").value);
+      if (!brand || !material || !color || !Number.isFinite(originalGrams) || originalGrams <= 0 || !Number.isFinite(pricePaid) || pricePaid < 0) {
+        return alert("Enter a brand, material, color, valid spool weight, and price paid.");
+      }
+      try {
+        const costPerGram = pricePaid / originalGrams;
+        if (editingSpoolId) {
+          const existing = (await getDocs(collection(db, "spools"))).docs.find(d => d.id === editingSpoolId)?.data() || {};
+          const used = Math.max(0, Number(existing.originalGrams || originalGrams) - Number(existing.remainingGrams ?? originalGrams));
+          const remainingGrams = Math.max(0, originalGrams - used);
+          await updateDoc(doc(db, "spools", editingSpoolId), { brand, material, color, diameterMm: 1.75, originalGrams, remainingGrams, pricePaid, costPerGram, updatedAt: serverTimestamp() });
+        } else {
+          const id = `${Date.now()}-${brand}-${material}-${color}`.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+          await setDoc(doc(db, "spools", id), { brand, material, color, diameterMm: 1.75, originalGrams, remainingGrams: originalGrams, pricePaid, costPerGram, status: "active", createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        }
+        closeSpoolModal();
+      } catch (e) { console.error(e); alert(e.message || "Could not save spool."); }
     }
 
     function loadPrinters() {
@@ -296,6 +445,7 @@
         $("welcome").textContent = `Logged in as ${user.email}`;
         try {
           await seedDefaultPrinters();
+          await seedDefaultSpool();
           loadPrinters();
         } catch (e) {
           console.error(e);
@@ -303,6 +453,7 @@
         }
       } else {
         if (unsubscribePrinters) unsubscribePrinters();
+        if (unsubscribeSpools) unsubscribeSpools();
         $("appView").classList.add("hidden");
         $("loginView").classList.remove("hidden");
       }
