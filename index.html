@@ -103,11 +103,11 @@
   <div id="spoolModal" class="modal hidden">
     <div class="modal-card">
       <h2 id="spoolModalTitle">Add Spool</h2>
-      <input id="spoolBrand" placeholder="Brand" value="Inland">
-      <input id="spoolMaterial" placeholder="Material" value="PLA Basic">
-      <input id="spoolColor" placeholder="Color" value="White">
-      <input id="spoolWeight" type="number" min="1" step="1" placeholder="Spool weight (g)" value="1000">
-      <input id="spoolPrice" type="number" min="0" step="0.01" placeholder="Price paid ($)" value="10.00">
+      <input id="spoolBrand" placeholder="Brand">
+      <input id="spoolMaterial" placeholder="Material">
+      <input id="spoolColor" placeholder="Color">
+      <input id="spoolWeight" type="number" min="1" step="1" placeholder="Spool weight (g)">
+      <input id="spoolPrice" type="number" min="0" step="0.01" placeholder="Price paid ($)">
       <div class="row">
         <button id="saveSpoolBtn">Save Spool</button>
         <button id="cancelSpoolBtn" class="secondary">Cancel</button>
@@ -261,11 +261,11 @@
     function openSpoolModal(spool=null) {
       editingSpoolId = spool?.id || null;
       $("spoolModalTitle").textContent = spool ? "Edit Spool" : "Add Spool";
-      $("spoolBrand").value = spool?.brand || "Inland";
-      $("spoolMaterial").value = spool?.material || "PLA Basic";
-      $("spoolColor").value = spool?.color || "White";
-      $("spoolWeight").value = spool?.originalGrams ?? 1000;
-      $("spoolPrice").value = spool?.pricePaid ?? 10;
+      $("spoolBrand").value = spool?.brand || "";
+      $("spoolMaterial").value = spool?.material || "";
+      $("spoolColor").value = spool?.color || "";
+      $("spoolWeight").value = spool?.originalGrams ?? "";
+      $("spoolPrice").value = spool?.pricePaid ?? "";
       $("spoolModal").classList.remove("hidden");
     }
 
