@@ -1,11 +1,11 @@
 {
   "name": "MKCC Prints",
-  "short_name": "MKCC",
+  "short_name": "MKCC Prints",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#111111",
-  "description": "MKCC Prints 3D printing management system",
+  "description": "3D printing management system",
   "icons": []
 }

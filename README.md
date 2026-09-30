@@ -1,5 +1,14 @@
 # MKCC Prints
 
-Version 0.1 — Firebase login/dashboard foundation.
+Firebase-powered 3D printing management app.
 
-Firebase Web SDK updated to 12.19.0 with matching App and Auth modules.
+## Current build
+- Firebase Email/Password authentication
+- Firestore connection
+- Shared printer list
+- 9 default printers seeded on first login
+- Add/edit/delete printers
+- Printer status: Active / Offline / Maintenance
+
+## Firestore rules
+Copy `firestore.rules` into Firebase Console → Firestore Database → Rules and publish it before using the printer data.
