@@ -1,15 +1,12 @@
-# MKCC Prints v0.8
+# MKCC Prints v1.0 — POS + Barcodes
 
-Adds customer and order management to the MKCC Prints Firebase app.
+Adds a Point of Sale screen to the v0.9 app. Stock Prints can now store a barcode, and POS supports:
+- Phone camera barcode scanning where the browser supports BarcodeDetector
+- USB/Bluetooth scanners that type into the barcode/SKU field and press Enter
+- Cart quantities
+- Cash/Card/Other payment method
+- Optional craft show/event name
+- Firestore sales records
+- Transactional inventory deduction
 
-## Includes
-- Customers: name, phone, email, address, notes
-- Orders: customer, order number, dates, item, quantity, customer price, status, notes
-- Cloud-saved customer and order data in Firestore
-- Dashboard counts for customers and open orders
-- Edit/delete support
-- Orders are ready to be connected to print jobs in a later version
-
-
-## v0.9
-Adds Stock Prints inventory for finished products kept for craft shows, with quantity on hand, quantity at a craft show, selling price, unit production cost, and quick stock/sale actions.
+Use the exact same Firebase/Firestore setup and rules as v0.9.

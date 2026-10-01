@@ -84,6 +84,7 @@
             <div class="tile" id="customersTile"><strong id="customersCount">0</strong><span class="small">Customers</span></div>
             <div class="tile" id="ordersTile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
             <div class="tile" id="stockTile"><strong id="stockCount">0</strong><span class="small">Stock Prints</span></div>
+            <div class="tile" id="posTile"><strong id="posTodayCount">0</strong><span class="small">POS Sales Today</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
           <button id="filamentBtn" class="secondary">Manage Filament</button>
@@ -91,6 +92,7 @@
           <button id="customersBtn" class="secondary">Manage Customers</button>
           <button id="ordersBtn" class="secondary">Manage Orders</button>
           <button id="stockBtn" class="secondary">Manage Stock Prints</button>
+          <button id="posBtn" class="secondary">Open Point of Sale</button>
         </div>
 
         <div id="filamentView" class="hidden">
@@ -149,6 +151,40 @@
           <button id="addStockBtn">+ Add Stock Print</button>
           <div id="stockList"></div>
           <div id="stockStatus" class="status"></div>
+        </div>
+
+        <div id="posView" class="hidden">
+          <div class="topbar">
+            <h2>Point of Sale</h2>
+            <button id="backPosDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Scan with your phone camera or use a USB/Bluetooth barcode scanner.</p>
+          <div class="card" style="margin-top:12px;">
+            <label class="small" for="posBarcode">Barcode / SKU</label>
+            <input id="posBarcode" autocomplete="off" placeholder="Scan barcode here, then press Enter">
+            <div class="row">
+              <button id="posScanBtn">📷 Scan With Phone</button>
+              <button id="posStopScanBtn" class="secondary hidden">Stop Camera</button>
+            </div>
+            <video id="posCamera" class="hidden" autoplay playsinline style="width:100%;border-radius:12px;margin-top:12px;background:#000;max-height:320px;"></video>
+            <div id="posScanStatus" class="status"></div>
+          </div>
+          <div class="card">
+            <h3>Cart</h3>
+            <div id="posCartList"></div>
+            <div class="topbar" style="margin-top:14px;">
+              <strong>Total</strong><strong id="posCartTotal">$0.00</strong>
+            </div>
+            <select id="posPaymentMethod">
+              <option value="Cash">Cash</option>
+              <option value="Card">Card</option>
+              <option value="Other">Other</option>
+            </select>
+            <input id="posEventName" placeholder="Craft show / event (optional)">
+            <button id="posCompleteBtn">Complete Sale</button>
+            <button id="posClearBtn" class="secondary">Clear Cart</button>
+            <div id="posStatus" class="status"></div>
+          </div>
         </div>
 
         <div id="printersView" class="hidden">
@@ -318,6 +354,7 @@
       <h2 id="stockModalTitle">Add Stock Print</h2>
       <input id="stockName" placeholder="Product / print name">
       <input id="stockSku" placeholder="SKU (optional)">
+      <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
         <div><label class="small" for="stockShowQty">At craft show</label><input id="stockShowQty" type="number" min="0" step="1" placeholder="0"></div>
@@ -375,7 +412,8 @@
       updateDoc,
       deleteDoc,
       onSnapshot,
-      serverTimestamp
+      serverTimestamp,
+      runTransaction
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -426,6 +464,10 @@
     let unsubscribeStock = null;
     let stockCache = [];
     let editingStockId = null;
+    let unsubscribeSales = null;
+    let posCart = [];
+    let posCameraStream = null;
+    let posScanLoop = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -587,6 +629,7 @@
     async function saveStock() {
       const name = $("stockName").value.trim();
       const sku = $("stockSku").value.trim();
+      const barcode = $("stockBarcode").value.trim();
       const quantityOnHand = Math.max(0, Math.floor(Number($("stockQty").value || 0)));
       const craftShowQty = Math.max(0, Math.floor(Number($("stockShowQty").value || 0)));
       const sellingPrice = Math.max(0, Number($("stockPrice").value || 0));
@@ -594,7 +637,7 @@
       const notes = $("stockNotes").value.trim();
       if (!name) return alert("Enter a product or print name.");
       if (craftShowQty > quantityOnHand) return alert("Craft show quantity cannot be greater than quantity on hand.");
-      const data = {name, sku, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
+      const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
       try {
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
         else { const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()}); }
@@ -627,6 +670,79 @@
       catch(e){ setStockStatus(e.message || "Could not record sale.", true); }
     }
 
+
+    function setPosStatus(msg, error=false) {
+      $("posStatus").textContent = msg;
+      $("posStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+    function setPosScanStatus(msg, error=false) {
+      $("posScanStatus").textContent = msg;
+      $("posScanStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+    function renderPosCart() {
+      const list = $("posCartList"); list.innerHTML = "";
+      let total = 0;
+      posCart.forEach((line, idx) => {
+        total += Number(line.item.sellingPrice||0) * line.qty;
+        const row = document.createElement("div"); row.className = "list-item";
+        row.innerHTML = `<div><strong></strong><div class="small"></div></div><div class="row" style="min-width:150px;"><button class="secondary">−</button><span style="padding:12px;font-weight:700;">${line.qty}</span><button class="secondary">+</button><button class="danger">Remove</button></div>`;
+        row.querySelector("strong").textContent = line.item.name || "Unnamed";
+        row.querySelector(".small").textContent = `$${Number(line.item.sellingPrice||0).toFixed(2)} each • ${line.item.barcode || line.item.sku || "No code"}`;
+        const buttons = row.querySelectorAll("button");
+        buttons[0].onclick=()=>{line.qty=Math.max(0,line.qty-1); if(!line.qty)posCart.splice(idx,1); renderPosCart();};
+        buttons[1].onclick=()=>{line.qty++; renderPosCart();};
+        buttons[2].onclick=()=>{posCart.splice(idx,1); renderPosCart();};
+        list.appendChild(row);
+      });
+      if(!posCart.length) list.innerHTML = '<p class="small">Cart is empty. Scan a stock print to begin.</p>';
+      $("posCartTotal").textContent = `$${total.toFixed(2)}`;
+    }
+    function findStockByCode(code) {
+      const c=(code||"").trim(); if(!c) return null;
+      return stockCache.find(i => String(i.barcode||"").trim()===c || String(i.sku||"").trim()===c);
+    }
+    function addCodeToCart(code) {
+      const item=findStockByCode(code);
+      if(!item) return setPosScanStatus(`No stock print found for barcode/SKU: ${code}`, true);
+      const available=Math.max(0,Number(item.quantityOnHand||0)-Number(item.craftShowQty||0));
+      const existing=posCart.find(l=>l.item.id===item.id);
+      if((existing?existing.qty:0)>=available) return setPosScanStatus(`No available inventory for ${item.name}.`, true);
+      if(existing) existing.qty++; else posCart.push({item,qty:1});
+      $("posBarcode").value=""; setPosScanStatus(`${item.name} added to cart.`); renderPosCart();
+    }
+    async function completePosSale() {
+      if(!posCart.length) return setPosStatus("Cart is empty.",true);
+      const paymentMethod=$("posPaymentMethod").value; const eventName=$("posEventName").value.trim();
+      const total=posCart.reduce((sum,l)=>sum+Number(l.item.sellingPrice||0)*l.qty,0);
+      try {
+        const saleLines=posCart.map(l=>({stockId:l.item.id,name:l.item.name,sku:l.item.sku||"",barcode:l.item.barcode||"",qty:l.qty,unitPrice:Number(l.item.sellingPrice||0),unitCost:Number(l.item.unitCost||0)}));
+        await runTransaction(db, async transaction => {
+          for(const line of saleLines){
+            const ref=doc(db,"stockPrints",line.stockId); const snap=await transaction.get(ref);
+            if(!snap.exists()) throw new Error(`${line.name} no longer exists.`);
+            const data=snap.data(); const available=Math.max(0,Number(data.quantityOnHand||0)-Number(data.craftShowQty||0));
+            if(line.qty>available) throw new Error(`Not enough available inventory for ${line.name}. Available: ${available}.`);
+            transaction.update(ref,{quantityOnHand:Number(data.quantityOnHand||0)-line.qty,updatedAt:serverTimestamp()});
+          }
+          const saleRef=doc(collection(db,"sales"));
+          transaction.set(saleRef,{lines:saleLines,total,paymentMethod,eventName,createdAt:serverTimestamp(),userEmail:currentUser?.email||""});
+        });
+        posCart=[]; renderPosCart(); $("posEventName").value=""; setPosStatus(`Sale completed — $${total.toFixed(2)}.`);
+      } catch(e){ console.error(e); setPosStatus(e.message||"Could not complete sale.",true); }
+    }
+    async function startPosCamera() {
+      if(!("BarcodeDetector" in window)) return setPosScanStatus("Camera barcode scanning isn't supported by this browser. Use Chrome on your phone or a USB/Bluetooth scanner.",true);
+      try {
+        const detector=new BarcodeDetector({formats:["code_128","code_39","ean_13","ean_8","upc_a","upc_e","qr_code"]});
+        posCameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+        const video=$("posCamera"); video.srcObject=posCameraStream; video.classList.remove("hidden"); $("posScanBtn").classList.add("hidden"); $("posStopScanBtn").classList.remove("hidden");
+        setPosScanStatus("Point the camera at a product barcode...");
+        const scan=async()=>{ if(!posCameraStream)return; try {const codes=await detector.detect(video); if(codes.length){addCodeToCart(codes[0].rawValue); stopPosCamera(); return;}}catch(e){} posScanLoop=requestAnimationFrame(scan);}; scan();
+      } catch(e){ setPosScanStatus(e.message||"Could not start camera.",true); }
+    }
+    function stopPosCamera(){ if(posScanLoop)cancelAnimationFrame(posScanLoop); posScanLoop=null; if(posCameraStream){posCameraStream.getTracks().forEach(t=>t.stop());posCameraStream=null;} const v=$("posCamera"); v.srcObject=null; v.classList.add("hidden"); $("posScanBtn").classList.remove("hidden"); $("posStopScanBtn").classList.add("hidden"); }
+    function loadTodaySales(){ if(unsubscribeSales)unsubscribeSales(); unsubscribeSales=onSnapshot(collection(db,"sales"),snap=>{ const today=new Date(); const count=snap.docs.reduce((n,d)=>{const x=d.data(); const dt=x.createdAt?.toDate?.(); return n+(dt&&dt.toDateString()===today.toDateString()?1:0)},0); $("posTodayCount").textContent=count; },()=>{}); }
+
     function loadStock() {
       if (unsubscribeStock) unsubscribeStock();
       unsubscribeStock = onSnapshot(collection(db,"stockPrints"), snap => {
@@ -636,6 +752,8 @@
         setStockStatus("");
       }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
+
+    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); renderPosCart(); loadStock(); setPosStatus(""); }
 
     function openPrinters() {
       hideAllMainViews();
@@ -1274,6 +1392,15 @@
       } catch (e) { console.error(e); alert(e.message || "Could not save print job."); }
     }
 
+
+    $("posBtn").addEventListener("click",openPos);
+    $("backPosDashboardBtn").addEventListener("click",()=>{stopPosCamera();hideAllMainViews();$("dashboardView").classList.remove("hidden");});
+    $("posBarcode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addCodeToCart(e.currentTarget.value);}});
+    $("posScanBtn").addEventListener("click",startPosCamera);
+    $("posStopScanBtn").addEventListener("click",()=>{stopPosCamera();setPosScanStatus("");});
+    $("posCompleteBtn").addEventListener("click",completePosSale);
+    $("posClearBtn").addEventListener("click",()=>{posCart=[];renderPosCart();setPosStatus("");});
+
     onAuthStateChanged(auth, async user => {
       currentUser = user;
       if (user) {
@@ -1289,6 +1416,7 @@
           loadCustomers();
           loadOrders();
           loadStock();
+          loadTodaySales();
         } catch (e) {
           console.error(e);
           setPrinterStatus(e.message || "Firestore setup is not ready yet.", true);
@@ -1300,6 +1428,8 @@
         if (unsubscribeOrders) unsubscribeOrders();
         if (unsubscribeJobs) unsubscribeJobs();
         if (unsubscribeStock) unsubscribeStock();
+        if (unsubscribeSales) unsubscribeSales();
+        stopPosCamera();
         $("appView").classList.add("hidden");
         $("loginView").classList.remove("hidden");
       }
