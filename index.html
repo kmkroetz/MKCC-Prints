@@ -81,7 +81,10 @@
             <button id="backFilamentDashboardBtn" class="secondary">Dashboard</button>
           </div>
           <p>Track filament by grams and actual purchase cost.</p>
-          <button id="addSpoolBtn">+ Add Spool</button>
+          <div class="row">
+            <button id="addSpoolBtn">+ Add Spool</button>
+            <button id="managePresetsBtn" class="secondary">Manage Presets</button>
+          </div>
           <div id="filamentList"></div>
           <div id="filamentStatus" class="status"></div>
         </div>
@@ -130,6 +133,36 @@
       <div class="row">
         <button id="saveSpoolBtn">Save Spool</button>
         <button id="cancelSpoolBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="presetModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="topbar">
+        <h2>Filament Presets</h2>
+        <button id="closePresetModalBtn" class="secondary">Close</button>
+      </div>
+      <p>Create reusable filament definitions. These are separate from individual spools.</p>
+      <div id="presetList"></div>
+      <div class="row" style="margin-top:14px">
+        <button id="addPresetBtn">+ Add Preset</button>
+      </div>
+      <div id="presetStatus" class="status"></div>
+    </div>
+  </div>
+
+  <div id="presetEditModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="presetEditTitle">Add Filament Preset</h2>
+      <input id="presetBrand" placeholder="Brand">
+      <input id="presetMaterial" placeholder="Material">
+      <input id="presetDiameter" type="number" min="0.1" step="0.01" placeholder="Diameter (mm)">
+      <input id="presetStandardWeight" type="number" min="1" step="1" placeholder="Standard spool weight (g)">
+      <div class="row">
+        <button id="savePresetBtn">Save Preset</button>
+        <button id="cancelPresetEditBtn" class="secondary">Cancel</button>
       </div>
     </div>
   </div>
@@ -211,6 +244,7 @@
     let unsubscribeSpools = null;
     let editingSpoolId = null;
     let filamentPresets = [];
+    let editingPresetId = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -253,6 +287,11 @@
       $("dashboardView").classList.remove("hidden");
     });
     $("addSpoolBtn").addEventListener("click", () => openSpoolModal());
+    $("managePresetsBtn").addEventListener("click", openPresetManager);
+    $("closePresetModalBtn").addEventListener("click", closePresetManager);
+    $("addPresetBtn").addEventListener("click", () => openPresetEdit());
+    $("cancelPresetEditBtn").addEventListener("click", closePresetEdit);
+    $("savePresetBtn").addEventListener("click", savePreset);
     $("cancelSpoolBtn").addEventListener("click", closeSpoolModal);
     $("saveSpoolBtn").addEventListener("click", saveSpool);
     $("spoolPreset").addEventListener("change", applySelectedPreset);
@@ -285,15 +324,15 @@
 
     async function seedFilamentPresets() {
       const snap = await getDocs(collection(db, "filamentPresets"));
-      if (!snap.empty) {
-        filamentPresets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        populatePresetSelect();
-        return;
+      const existingIds = new Set(snap.docs.map(d => d.id));
+      const missing = DEFAULT_FILAMENT_PRESETS.filter(p => !existingIds.has(p.id));
+      if (missing.length) {
+        await Promise.all(missing.map(p =>
+          setDoc(doc(db, "filamentPresets", p.id), { ...p, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+        ));
       }
-      await Promise.all(DEFAULT_FILAMENT_PRESETS.map(p =>
-        setDoc(doc(db, "filamentPresets", p.id), { ...p, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
-      ));
-      filamentPresets = DEFAULT_FILAMENT_PRESETS.map(p => ({ ...p }));
+      const refreshed = await getDocs(collection(db, "filamentPresets"));
+      filamentPresets = refreshed.docs.map(d => ({ id: d.id, ...d.data() }));
       populatePresetSelect();
     }
 
@@ -316,6 +355,103 @@
       $("spoolMaterial").value = preset.material || "";
       $("spoolDiameter").value = preset.diameterMm ?? 1.75;
       if (!$("spoolWeight").value) $("spoolWeight").value = preset.standardGrams ?? 1000;
+    }
+
+    function openPresetManager() {
+      renderPresetList();
+      $("presetStatus").textContent = "";
+      $("presetModal").classList.remove("hidden");
+    }
+
+    function closePresetManager() {
+      $("presetModal").classList.add("hidden");
+      closePresetEdit();
+    }
+
+    function openPresetEdit(preset=null) {
+      editingPresetId = preset?.id || null;
+      $("presetEditTitle").textContent = preset ? "Edit Filament Preset" : "Add Filament Preset";
+      $("presetBrand").value = preset?.brand || "";
+      $("presetMaterial").value = preset?.material || "";
+      $("presetDiameter").value = preset?.diameterMm ?? "";
+      $("presetStandardWeight").value = preset?.standardGrams ?? "";
+      $("presetEditModal").classList.remove("hidden");
+    }
+
+    function closePresetEdit() {
+      editingPresetId = null;
+      $("presetEditModal").classList.add("hidden");
+    }
+
+    function renderPresetList() {
+      const list = $("presetList");
+      list.innerHTML = "";
+      if (!filamentPresets.length) {
+        list.innerHTML = '<div class="small">No presets yet.</div>';
+        return;
+      }
+      [...filamentPresets].sort((a,b) => `${a.brand} ${a.material}`.localeCompare(`${b.brand} ${b.material}`)).forEach(preset => {
+        const row = document.createElement("div");
+        row.className = "printer";
+        const info = document.createElement("div");
+        info.innerHTML = '<div class="printer-name"></div><div class="small"></div>';
+        info.querySelector(".printer-name").textContent = `${preset.brand} — ${preset.material}`;
+        info.querySelector(".small").textContent = `${Number(preset.diameterMm || 1.75).toFixed(2)} mm • ${Number(preset.standardGrams || 0).toFixed(0)} g standard spool`;
+        const actions = document.createElement("div");
+        actions.className = "printer-actions";
+        const edit = document.createElement("button");
+        edit.textContent = "Edit"; edit.className = "secondary";
+        edit.onclick = () => openPresetEdit(preset);
+        const del = document.createElement("button");
+        del.textContent = "Delete"; del.className = "danger";
+        del.onclick = () => deletePreset(preset);
+        actions.append(edit, del);
+        row.append(info, actions);
+        list.appendChild(row);
+      });
+    }
+
+    async function savePreset() {
+      const brand = $("presetBrand").value.trim();
+      const material = $("presetMaterial").value.trim();
+      const diameterMm = Number($("presetDiameter").value);
+      const standardGrams = Number($("presetStandardWeight").value);
+      if (!brand || !material || !Number.isFinite(diameterMm) || diameterMm <= 0 || !Number.isFinite(standardGrams) || standardGrams <= 0) {
+        return alert("Enter a brand, material, diameter, and standard spool weight.");
+      }
+      try {
+        if (editingPresetId) {
+          await updateDoc(doc(db, "filamentPresets", editingPresetId), { brand, material, diameterMm, standardGrams, updatedAt: serverTimestamp() });
+        } else {
+          const id = `${brand}-${material}`.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+          const existing = filamentPresets.find(p => p.id === id || (p.brand.toLowerCase() === brand.toLowerCase() && p.material.toLowerCase() === material.toLowerCase()));
+          if (existing) return alert("That filament preset already exists.");
+          await setDoc(doc(db, "filamentPresets", id || `${Date.now()}`), { brand, material, diameterMm, standardGrams, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        }
+        const snap = await getDocs(collection(db, "filamentPresets"));
+        filamentPresets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        populatePresetSelect($("spoolPreset").value);
+        renderPresetList();
+        closePresetEdit();
+      } catch (e) {
+        console.error(e);
+        $("presetStatus").textContent = e.message || "Could not save preset.";
+        $("presetStatus").style.color = "#ff7777";
+      }
+    }
+
+    async function deletePreset(preset) {
+      if (!confirm(`Delete the preset ${preset.brand} — ${preset.material}? Existing spools will not be deleted.`)) return;
+      try {
+        await deleteDoc(doc(db, "filamentPresets", preset.id));
+        filamentPresets = filamentPresets.filter(p => p.id !== preset.id);
+        populatePresetSelect();
+        renderPresetList();
+      } catch (e) {
+        console.error(e);
+        $("presetStatus").textContent = e.message || "Could not delete preset.";
+        $("presetStatus").style.color = "#ff7777";
+      }
     }
 
     function openSpoolModal(spool=null) {
