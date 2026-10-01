@@ -33,6 +33,17 @@
     .printer-name { font-weight:700; }
     .printer-model { color:#aaa; font-size:13px; margin-top:4px; }
     .printer-actions { display:flex; gap:8px; }
+
+    .job { padding:14px 0; border-bottom:1px solid #333; }
+    .job:last-child { border-bottom:0; }
+    .job-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .job-name { font-weight:700; font-size:16px; }
+    .job-meta { color:#aaa; font-size:13px; line-height:1.5; margin-top:4px; }
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#292929; font-size:12px; }
+    .cost { margin-top:6px; font-weight:700; }
+    .row { display:flex; gap:10px; }
+    .row > * { flex:1; }
+    @media (max-width:560px){ .job-head{flex-direction:column;} .row{flex-direction:column;} }
     .printer-actions button { width:auto; margin-top:0; padding:8px 10px; font-size:13px; }
     .modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; padding:20px; z-index:10; }
     .modal-card { width:min(520px,100%); background:#1d1d1d; border:1px solid #444; border-radius:16px; padding:20px; }
@@ -73,6 +84,7 @@
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
           <button id="filamentBtn" class="secondary">Manage Filament</button>
+          <button id="jobsBtn" class="secondary">Manage Print Jobs</button>
         </div>
 
         <div id="filamentView" class="hidden">
@@ -89,6 +101,17 @@
           <div id="filamentStatus" class="status"></div>
         </div>
 
+        <div id="jobsView" class="hidden">
+          <div class="topbar">
+            <h2>Print Jobs</h2>
+            <button id="backJobsDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Track production, printer time, filament usage, labor, and job cost.</p>
+          <button id="addJobBtn">+ Add Print Job</button>
+          <div id="jobsList"></div>
+          <div id="jobStatus" class="status"></div>
+        </div>
+
         <div id="printersView" class="hidden">
           <div class="topbar">
             <h2>Printers</h2>
@@ -102,6 +125,45 @@
       </div>
     </section>
   </main>
+
+  <div id="jobModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="jobModalTitle">Add Print Job</h2>
+      <label class="small" for="jobItem">Production Item / Order</label>
+      <input id="jobItem" placeholder="Example: Dragon statue">
+      <label class="small" for="jobBed">Bed / Run #</label>
+      <input id="jobBed" type="number" min="1" value="1">
+      <label class="small" for="jobPrinter">Printer</label>
+      <select id="jobPrinter"></select>
+      <label class="small" for="jobSpool">Filament Spool</label>
+      <select id="jobSpool"></select>
+      <label class="small" for="jobGrams">Filament Used (g)</label>
+      <input id="jobGrams" type="number" min="0" step="0.1" placeholder="125">
+      <div class="row">
+        <div>
+          <label class="small" for="jobEstimatedMinutes">Estimated Print Time (minutes)</label>
+          <input id="jobEstimatedMinutes" type="number" min="0" step="1" placeholder="300">
+        </div>
+        <div>
+          <label class="small" for="jobActualMinutes">Actual Print Time (minutes)</label>
+          <input id="jobActualMinutes" type="number" min="0" step="1" placeholder="305">
+        </div>
+      </div>
+      <label class="small" for="jobOutcome">Outcome</label>
+      <select id="jobOutcome">
+        <option value="Pending">Pending</option>
+        <option value="Pass">Pass</option>
+        <option value="Fail">Fail</option>
+      </select>
+      <label class="small" for="jobNotes">Notes</label>
+      <input id="jobNotes" placeholder="Optional">
+      <div class="row">
+        <button id="saveJobBtn">Save Job</button>
+        <button id="cancelJobBtn" class="secondary">Cancel</button>
+      </div>
+      <div id="jobCostPreview" class="small"></div>
+    </div>
+  </div>
 
   <div id="spoolModal" class="modal hidden">
     <div class="modal-card">
@@ -239,6 +301,11 @@
     ];
 
     let currentUser = null;
+    let unsubscribeJobs = null;
+    let editingJobId = null;
+    let printersCache = [];
+    let spoolsCache = [];
+
     let editingPrinterId = null;
     let unsubscribePrinters = null;
     let unsubscribeSpools = null;
@@ -280,6 +347,19 @@
 
     $("logoutBtn").addEventListener("click", () => signOut(auth));
     $("printersBtn").addEventListener("click", openPrinters);
+    $("jobsBtn").addEventListener("click", openJobs);
+    $("backJobsDashboardBtn").addEventListener("click", () => {
+      $("jobsView").classList.add("hidden");
+      $("dashboardView").classList.remove("hidden");
+    });
+    $("addJobBtn").addEventListener("click", () => openJobModal());
+    $("cancelJobBtn").addEventListener("click", closeJobModal);
+    $("saveJobBtn").addEventListener("click", saveJob);
+    $("jobSpool").addEventListener("change", updateJobCostPreview);
+    $("jobGrams").addEventListener("input", updateJobCostPreview);
+    $("jobEstimatedMinutes").addEventListener("input", updateJobCostPreview);
+    $("jobActualMinutes").addEventListener("input", updateJobCostPreview);
+
     $("filamentBtn").addEventListener("click", openFilament);
     $("filamentTile").addEventListener("click", openFilament);
     $("backFilamentDashboardBtn").addEventListener("click", () => {
@@ -307,6 +387,7 @@
     function openPrinters() {
       $("dashboardView").classList.add("hidden");
       $("filamentView").classList.add("hidden");
+      $("jobsView").classList.add("hidden");
       $("printersView").classList.remove("hidden");
       loadPrinters();
     }
@@ -314,8 +395,18 @@
     function openFilament() {
       $("dashboardView").classList.add("hidden");
       $("printersView").classList.add("hidden");
+      $("jobsView").classList.add("hidden");
       $("filamentView").classList.remove("hidden");
       loadSpools();
+    }
+
+    function openJobs() {
+      $("dashboardView").classList.add("hidden");
+      $("printersView").classList.add("hidden");
+      $("filamentView").classList.add("hidden");
+      $("jobsView").classList.remove("hidden");
+      loadJobs();
+      populateJobSelects();
     }
 
     const DEFAULT_FILAMENT_PRESETS = [
@@ -532,6 +623,8 @@
         const spools = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a,b) => String(a.brand + a.material + a.color).localeCompare(String(b.brand + b.material + b.color)));
         $("spoolsCount").textContent = spools.length;
+        spoolsCache = spools;
+        if (!$("jobsView").classList.contains("hidden")) populateJobSelects();
         renderSpools(spools);
         setFilamentStatus(spools.length ? "" : "No spools yet.");
       }, err => {
@@ -598,6 +691,8 @@
         const printers = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a,b) => String(a.name).localeCompare(String(b.name)));
         $("printersCount").textContent = printers.length;
+        printersCache = printers;
+        if (!$("jobsView").classList.contains("hidden")) populateJobSelects();
         renderPrinters(printers);
         setPrinterStatus(printers.length ? "" : "No printers yet.");
       }, err => {
@@ -647,6 +742,159 @@
       } catch (e) { console.error(e); alert(e.message || "Could not save printer."); }
     }
 
+
+    function setJobStatus(msg, error=false) {
+      $("jobStatus").textContent = msg || "";
+      $("jobStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+
+    function populateJobSelects(job=null) {
+      const printerSelect = $("jobPrinter");
+      printerSelect.innerHTML = '<option value="">Select printer</option>';
+      printersCache.filter(p => (p.status || "active") === "active").forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id; opt.textContent = `${p.name} — ${p.model || ""}`;
+        printerSelect.appendChild(opt);
+      });
+      const spoolSelect = $("jobSpool");
+      spoolSelect.innerHTML = '<option value="">Select filament spool</option>';
+      spoolsCache.filter(s => (s.status || "active") === "active").forEach(spool => {
+        const opt = document.createElement("option");
+        opt.value = spool.id;
+        opt.textContent = `${spool.brand} — ${spool.material} — ${spool.color} (${Number(spool.remainingGrams || 0).toFixed(0)}g left)`;
+        spoolSelect.appendChild(opt);
+      });
+      if (job) {
+        printerSelect.value = job.printerId || "";
+        spoolSelect.value = job.spoolId || "";
+      }
+    }
+
+    function updateJobCostPreview() {
+      const spool = spoolsCache.find(s => s.id === $("jobSpool").value);
+      const grams = Number($("jobGrams").value || 0);
+      const actual = Number($("jobActualMinutes").value || 0);
+      const estimated = Number($("jobEstimatedMinutes").value || 0);
+      const minutes = actual > 0 ? actual : estimated;
+      const materialCost = spool ? grams * Number(spool.costPerGram || 0) : 0;
+      const laborCost = (minutes / 60) * 30;
+      $("jobCostPreview").textContent =
+        `Estimated production cost: $${(materialCost + laborCost).toFixed(2)} ` +
+        `(filament $${materialCost.toFixed(2)} + labor $${laborCost.toFixed(2)})`;
+    }
+
+    function openJobModal(job=null) {
+      editingJobId = job?.id || null;
+      $("jobModalTitle").textContent = job ? "Edit Print Job" : "Add Print Job";
+      $("jobItem").value = job?.itemName || "";
+      $("jobBed").value = job?.bedNumber || 1;
+      $("jobGrams").value = job?.filamentGrams ?? "";
+      $("jobEstimatedMinutes").value = job?.estimatedMinutes ?? "";
+      $("jobActualMinutes").value = job?.actualMinutes ?? "";
+      $("jobOutcome").value = job?.outcome || "Pending";
+      $("jobNotes").value = job?.notes || "";
+      populateJobSelects(job);
+      updateJobCostPreview();
+      $("jobModal").classList.remove("hidden");
+    }
+
+    function closeJobModal() {
+      editingJobId = null;
+      $("jobModal").classList.add("hidden");
+    }
+
+    function renderJobs(jobs) {
+      const list = $("jobsList");
+      list.innerHTML = "";
+      if (!jobs.length) {
+        list.innerHTML = '<div class="small">No print jobs yet.</div>';
+        return;
+      }
+      jobs.forEach(job => {
+        const row = document.createElement("div");
+        row.className = "job";
+        const printer = printersCache.find(p => p.id === job.printerId);
+        const spool = spoolsCache.find(s => s.id === job.spoolId);
+        const materialCost = Number(job.materialCost || 0);
+        const laborCost = Number(job.laborCost || 0);
+        const totalCost = Number(job.totalCost ?? materialCost + laborCost);
+        row.innerHTML = `
+          <div class="job-head">
+            <div>
+              <div class="job-name"></div>
+              <div class="job-meta"></div>
+              <div class="job-meta"></div>
+              <div class="cost"></div>
+            </div>
+            <div class="printer-actions"></div>
+          </div>`;
+        row.querySelector(".job-name").textContent = `${job.itemName || "Unnamed item"} — Bed ${job.bedNumber || 1}`;
+        row.querySelectorAll(".job-meta")[0].textContent =
+          `${printer?.name || "Unknown printer"} • ${spool ? `${spool.brand} ${spool.material} ${spool.color}` : "No spool"}`;
+        row.querySelectorAll(".job-meta")[1].textContent =
+          `${Number(job.filamentGrams || 0).toFixed(1)} g • Est. ${Number(job.estimatedMinutes || 0)} min • Actual ${Number(job.actualMinutes || 0)} min • ${job.outcome || "Pending"}`;
+        row.querySelector(".cost").textContent = `Production cost: $${totalCost.toFixed(2)} (material $${materialCost.toFixed(2)} + labor $${laborCost.toFixed(2)})`;
+        const actions = row.querySelector(".printer-actions");
+        const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openJobModal(job);
+        const del = document.createElement("button"); del.textContent="Delete"; del.className="danger";
+        del.onclick=async()=>{ if(!confirm(`Delete this print job?`)) return; try{await deleteDoc(doc(db,"printJobs",job.id));}catch(e){setJobStatus(e.message,true);} };
+        actions.append(edit,del);
+        list.appendChild(row);
+      });
+    }
+
+    function loadJobs() {
+      if (unsubscribeJobs) unsubscribeJobs();
+      unsubscribeJobs = onSnapshot(collection(db, "printJobs"), snap => {
+        const jobs = snap.docs.map(d => ({id:d.id,...d.data()}))
+          .sort((a,b) => Number(b.createdAt?.seconds || 0) - Number(a.createdAt?.seconds || 0));
+        $("jobsCount").textContent = jobs.length;
+        renderJobs(jobs);
+        setJobStatus("");
+      }, err => { console.error(err); setJobStatus(err.message || "Could not load print jobs.", true); });
+    }
+
+    async function saveJob() {
+      const itemName = $("jobItem").value.trim();
+      const bedNumber = Math.max(1, Number($("jobBed").value || 1));
+      const printerId = $("jobPrinter").value;
+      const spoolId = $("jobSpool").value;
+      const filamentGrams = Number($("jobGrams").value || 0);
+      const estimatedMinutes = Number($("jobEstimatedMinutes").value || 0);
+      const actualMinutes = Number($("jobActualMinutes").value || 0);
+      const outcome = $("jobOutcome").value;
+      const notes = $("jobNotes").value.trim();
+      const spool = spoolsCache.find(s => s.id === spoolId);
+
+      if (!itemName || !printerId || !spoolId || filamentGrams <= 0) {
+        return alert("Enter an item, printer, filament spool, and grams used.");
+      }
+      if (!Number.isFinite(estimatedMinutes) || estimatedMinutes < 0 || !Number.isFinite(actualMinutes) || actualMinutes < 0) {
+        return alert("Enter valid print times.");
+      }
+      const minutesForCost = actualMinutes > 0 ? actualMinutes : estimatedMinutes;
+      const materialCost = filamentGrams * Number(spool?.costPerGram || 0);
+      const laborCost = (minutesForCost / 60) * 30;
+      const totalCost = materialCost + laborCost;
+
+      const data = {
+        itemName, bedNumber, printerId, spoolId, filamentGrams,
+        estimatedMinutes, actualMinutes, outcome, notes,
+        materialCost, laborCost, totalCost,
+        laborRate: 30,
+        updatedAt: serverTimestamp()
+      };
+      try {
+        if (editingJobId) {
+          await updateDoc(doc(db, "printJobs", editingJobId), data);
+        } else {
+          const id = `${Date.now()}-${itemName.toLowerCase().replace(/[^a-z0-9]+/g,"-")}-bed-${bedNumber}`;
+          await setDoc(doc(db, "printJobs", id), {...data, createdAt: serverTimestamp()});
+        }
+        closeJobModal();
+      } catch (e) { console.error(e); alert(e.message || "Could not save print job."); }
+    }
+
     onAuthStateChanged(auth, async user => {
       currentUser = user;
       if (user) {
@@ -658,6 +906,7 @@
           await seedDefaultSpool();
           await seedFilamentPresets();
           loadPrinters();
+          loadJobs();
         } catch (e) {
           console.error(e);
           setPrinterStatus(e.message || "Firestore setup is not ready yet.", true);
@@ -665,6 +914,7 @@
       } else {
         if (unsubscribePrinters) unsubscribePrinters();
         if (unsubscribeSpools) unsubscribeSpools();
+        if (unsubscribeJobs) unsubscribeJobs();
         $("appView").classList.add("hidden");
         $("loginView").classList.remove("hidden");
       }
