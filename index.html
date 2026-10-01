@@ -98,6 +98,7 @@
             <div class="tile" id="customersTile"><strong id="customersCount">0</strong><span class="small">Customers</span></div>
             <div class="tile" id="ordersTile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
             <div class="tile" id="stockTile"><strong id="stockCount">0</strong><span class="small">Stock Prints</span></div>
+            <div class="tile" id="craftShowsTile"><strong id="craftShowsCount">0</strong><span class="small">Craft Shows</span></div>
             <div class="tile" id="posTile"><strong id="posTodayCount">0</strong><span class="small">POS Sales Today</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
@@ -106,6 +107,7 @@
           <button id="customersBtn" class="secondary">Manage Customers</button>
           <button id="ordersBtn" class="secondary">Manage Orders</button>
           <button id="stockBtn" class="secondary">Manage Stock Prints</button>
+          <button id="craftShowsBtn" class="secondary">Manage Craft Shows</button>
           <button id="posBtn" class="secondary">Open Point of Sale</button>
         </div>
 
@@ -165,6 +167,17 @@
           <button id="addStockBtn">+ Add Stock Print</button>
           <div id="stockList"></div>
           <div id="stockStatus" class="status"></div>
+        </div>
+
+        <div id="craftShowsView" class="hidden">
+          <div class="topbar">
+            <h2>Craft Shows</h2>
+            <button id="backCraftShowsDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Create events and track stock loaded for each craft show.</p>
+          <button id="addCraftShowBtn">+ Add Craft Show</button>
+          <div id="craftShowsList"></div>
+          <div id="craftShowStatus" class="status"></div>
         </div>
 
         <div id="posView" class="hidden">
@@ -369,6 +382,9 @@
       <input id="stockName" placeholder="Product / print name">
       <input id="stockSku" placeholder="SKU (optional)">
       <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
+      <label class="small" for="stockPhoto">Product photo</label>
+      <input id="stockPhoto" type="file" accept="image/*">
+      <div id="stockPhotoPreview" class="small" style="margin-top:8px;"></div>
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
         <div><label class="small" for="stockShowQty">At craft show</label><input id="stockShowQty" type="number" min="0" step="1" placeholder="0"></div>
@@ -381,6 +397,23 @@
       <div class="row">
         <button id="saveStockBtn">Save Stock Print</button>
         <button id="cancelStockBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="craftShowModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="craftShowModalTitle">Add Craft Show</h2>
+      <input id="craftShowName" placeholder="Craft show name">
+      <div class="row">
+        <div><label class="small" for="craftShowDate">Date</label><input id="craftShowDate" type="date"></div>
+        <div><label class="small" for="craftShowLocation">Location</label><input id="craftShowLocation" placeholder="Location"></div>
+      </div>
+      <input id="craftShowFee" type="number" min="0" step="0.01" placeholder="Event fee ($)">
+      <input id="craftShowNotes" placeholder="Notes">
+      <div class="row">
+        <button id="saveCraftShowBtn">Save Craft Show</button>
+        <button id="cancelCraftShowBtn" class="secondary">Cancel</button>
       </div>
     </div>
   </div>
@@ -417,6 +450,7 @@
       createUserWithEmailAndPassword,
       signOut
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
     import {
       getFirestore,
       collection,
@@ -443,6 +477,7 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const storage = getStorage(app);
     const $ = id => document.getElementById(id);
 
     const DEFAULT_PRINTERS = [
@@ -482,6 +517,10 @@
     let posCart = [];
     let posCameraStream = null;
     let posScanLoop = null;
+    let craftShowsCache = [];
+    let unsubscribeCraftShows = null;
+    let editingCraftShowId = null;
+    let selectedStockPhotoFile = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -540,6 +579,13 @@
     $("customersTile").addEventListener("click", openCustomers);
     $("ordersBtn").addEventListener("click", openOrders);
     $("stockBtn").addEventListener("click", openStock);
+    $("craftShowsBtn").addEventListener("click", openCraftShows);
+    $("craftShowsTile").addEventListener("click", openCraftShows);
+    $("backCraftShowsDashboardBtn").addEventListener("click", () => openManage());
+    $("addCraftShowBtn").addEventListener("click", () => openCraftShowModal());
+    $("cancelCraftShowBtn").addEventListener("click", closeCraftShowModal);
+    $("saveCraftShowBtn").addEventListener("click", saveCraftShow);
+    $("stockPhoto").addEventListener("change", previewStockPhoto);
     $("stockTile").addEventListener("click", openStock);
     $("backStockDashboardBtn").addEventListener("click", () => { openManage(); });
     $("addStockBtn").addEventListener("click", () => openStockModal());
@@ -578,7 +624,7 @@
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["homeView","dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView","posView"].forEach(id => $(id).classList.add("hidden"));
+      ["homeView","dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
     }
 
     function openHome() {
@@ -597,10 +643,12 @@
       hideAllMainViews();
       $("stockView").classList.remove("hidden");
       loadStock();
+        loadCraftShows();
     }
 
     function openStockModal(item=null) {
       editingStockId = item?.id || null;
+      selectedStockPhotoFile = null;
       $("stockModalTitle").textContent = item ? "Edit Stock Print" : "Add Stock Print";
       $("stockName").value = item?.name || "";
       $("stockSku").value = item?.sku || "";
@@ -635,6 +683,7 @@
         const profit = price - cost;
         row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
         row.querySelector(".job-name").textContent = `${item.name || "Unnamed stock print"}${item.sku ? ` — ${item.sku}` : ""}`;
+        if (item.photoURL) { const img=document.createElement("img"); img.src=item.photoURL; img.alt=item.name||"Stock print"; img.style="width:72px;height:72px;object-fit:cover;border-radius:10px;margin-top:8px;"; row.querySelector(".job-name").parentElement.prepend(img); }
         row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft show: ${showQty} • Available: ${available}`;
         row.querySelectorAll(".job-meta")[1].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
         row.querySelector(".cost").textContent = `Inventory value at cost: $${(qty * cost).toFixed(2)}`;
@@ -663,12 +712,21 @@
       const notes = $("stockNotes").value.trim();
       if (!name) return alert("Enter a product or print name.");
       if (craftShowQty > quantityOnHand) return alert("Craft show quantity cannot be greater than quantity on hand.");
-      const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
       try {
+        let id = editingStockId;
+        if (!id) id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`;
+        let photoURL = stockCache.find(x=>x.id===id)?.photoURL || "";
+        if (selectedStockPhotoFile) {
+          const photoPath = `stockPrints/${currentUser.uid}/${id}-${Date.now()}-${selectedStockPhotoFile.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+          const r = storageRef(storage, photoPath);
+          await uploadBytes(r, selectedStockPhotoFile);
+          photoURL = await getDownloadURL(r);
+        }
+        const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, photoURL, updatedAt: serverTimestamp()};
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
-        else { const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()}); }
+        else await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()});
         closeStockModal();
-      } catch(e) { console.error(e); alert(e.message || "Could not save stock print."); }
+      } catch(e) { console.error(e); alert(e.message || "Could not save stock print or upload photo."); }
     }
 
     async function changeStockQty(item, delta, field="quantityOnHand") {
@@ -696,6 +754,93 @@
       catch(e){ setStockStatus(e.message || "Could not record sale.", true); }
     }
 
+
+    function previewStockPhoto() {
+      selectedStockPhotoFile = $("stockPhoto").files?.[0] || null;
+      if (!selectedStockPhotoFile) return;
+      const url = URL.createObjectURL(selectedStockPhotoFile);
+      $("stockPhotoPreview").innerHTML = `<img src="${url}" style="max-width:140px;max-height:140px;border-radius:12px;display:block;margin-top:6px;">`;
+    }
+
+    function setCraftShowStatus(msg, error=false) {
+      $("craftShowStatus").textContent = msg;
+      $("craftShowStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+
+    function openCraftShows() {
+      hideAllMainViews(); $("craftShowsView").classList.remove("hidden"); loadCraftShows();
+    }
+
+    function openCraftShowModal(show=null) {
+      editingCraftShowId = show?.id || null;
+      $("craftShowModalTitle").textContent = show ? "Edit Craft Show" : "Add Craft Show";
+      $("craftShowName").value = show?.name || "";
+      $("craftShowDate").value = show?.date || "";
+      $("craftShowLocation").value = show?.location || "";
+      $("craftShowFee").value = show?.fee ?? "";
+      $("craftShowNotes").value = show?.notes || "";
+      $("craftShowModal").classList.remove("hidden");
+    }
+
+    function closeCraftShowModal() { editingCraftShowId=null; $("craftShowModal").classList.add("hidden"); }
+
+    async function saveCraftShow() {
+      const name=$("craftShowName").value.trim();
+      if(!name) return alert("Enter a craft show name.");
+      const data={name,date:$("craftShowDate").value,location:$("craftShowLocation").value.trim(),fee:Math.max(0,Number($("craftShowFee").value||0)),notes:$("craftShowNotes").value.trim(),status:"Open",updatedAt:serverTimestamp()};
+      try {
+        if(editingCraftShowId) await updateDoc(doc(db,"craftShows",editingCraftShowId),data);
+        else { const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"craftShows",id),{...data,createdAt:serverTimestamp(),loadedItems:{}}); }
+        closeCraftShowModal();
+      } catch(e){setCraftShowStatus(e.message||"Could not save craft show.",true);}
+    }
+
+    function loadCraftShows(){
+      if(unsubscribeCraftShows) unsubscribeCraftShows();
+      unsubscribeCraftShows=onSnapshot(collection(db,"craftShows"),snap=>{
+        craftShowsCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+        $("craftShowsCount").textContent=craftShowsCache.filter(x=>x.status!=="Closed").length; renderCraftShows(craftShowsCache);
+      },e=>setCraftShowStatus(e.message||"Could not load craft shows.",true));
+    }
+
+    function renderCraftShows(items){
+      const list=$("craftShowsList"); list.innerHTML="";
+      if(!items.length){list.innerHTML='<div class="small">No craft shows yet.</div>';return;}
+      items.forEach(show=>{
+        const row=document.createElement("div"); row.className="job";
+        const loaded=show.loadedItems||{}; const loadedCount=Object.values(loaded).reduce((s,n)=>s+Number(n||0),0);
+        row.innerHTML='<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div></div><div class="printer-actions"></div></div>';
+        row.querySelector('.job-name').textContent=show.name;
+        row.querySelectorAll('.job-meta')[0].textContent=`${show.date||"No date"} • ${show.location||"No location"}`;
+        row.querySelectorAll('.job-meta')[1].textContent=`Status: ${show.status||"Open"} • Loaded items: ${loadedCount} • Event fee: $${Number(show.fee||0).toFixed(2)}`;
+        const a=row.querySelector('.printer-actions');
+        const load=document.createElement('button'); load.textContent='Load Stock'; load.className='secondary'; load.onclick=()=>loadStockToShow(show);
+        const edit=document.createElement('button'); edit.textContent='Edit'; edit.className='secondary'; edit.onclick=()=>openCraftShowModal(show);
+        const close=document.createElement('button'); close.textContent=show.status==='Closed'?'Reopen':'Close'; close.className='secondary'; close.onclick=()=>toggleCraftShow(show);
+        a.append(load,edit,close); list.appendChild(row);
+      });
+    }
+
+    async function loadStockToShow(show){
+      if(!stockCache.length) await loadStock();
+      const name=prompt("Enter the SKU or barcode to load:"); if(!name) return;
+      const item=findStockByCode(name) || stockCache.find(x=>x.name?.toLowerCase()===name.toLowerCase());
+      if(!item) return alert("Stock print not found.");
+      const qty=Math.max(1,Math.floor(Number(prompt(`How many ${item.name} are you loading?`,"1")||0)));
+      const available=Math.max(0,Number(item.quantityOnHand||0)-Number(item.craftShowQty||0));
+      if(qty>available) return alert(`Only ${available} available.`);
+      try{
+        await runTransaction(db,async tx=>{
+          const stockRef=doc(db,"stockPrints",item.id); const showRef=doc(db,"craftShows",show.id);
+          const ss=await tx.get(stockRef), es=await tx.get(showRef); if(!ss.exists()||!es.exists()) throw new Error("Item or show no longer exists.");
+          const sd=ss.data(), ed=es.data(); const avail=Math.max(0,Number(sd.quantityOnHand||0)-Number(sd.craftShowQty||0)); if(qty>avail) throw new Error(`Only ${avail} available.`);
+          const loaded={...(ed.loadedItems||{})}; loaded[item.id]=Number(loaded[item.id]||0)+qty;
+          tx.update(stockRef,{craftShowQty:Number(sd.craftShowQty||0)+qty,updatedAt:serverTimestamp()}); tx.update(showRef,{loadedItems:loaded,updatedAt:serverTimestamp()});
+        });
+      }catch(e){alert(e.message||"Could not load stock.");}
+    }
+
+    async function toggleCraftShow(show){ try{await updateDoc(doc(db,"craftShows",show.id),{status:show.status==='Closed'?'Open':'Closed',updatedAt:serverTimestamp()});}catch(e){setCraftShowStatus(e.message||"Could not update show.",true);} }
 
     function setPosStatus(msg, error=false) {
       $("posStatus").textContent = msg;
