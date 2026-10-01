@@ -382,8 +382,8 @@
       <input id="stockName" placeholder="Product / print name">
       <input id="stockSku" placeholder="SKU (optional)">
       <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
-      <label class="small" for="stockPhoto">Product photo</label>
-      <input id="stockPhoto" type="file" accept="image/*">
+      <label class="small" for="stockPhoto">Product photo (cloud upload disabled until Blaze)</label>
+      <input id="stockPhoto" type="file" accept="image/*" disabled title="Firebase Storage requires Blaze">
       <div id="stockPhotoPreview" class="small" style="margin-top:8px;"></div>
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
@@ -450,7 +450,6 @@
       createUserWithEmailAndPassword,
       signOut
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
     import {
       getFirestore,
       collection,
@@ -477,7 +476,6 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const storage = getStorage(app);
     const $ = id => document.getElementById(id);
 
     const DEFAULT_PRINTERS = [
@@ -715,13 +713,7 @@
       try {
         let id = editingStockId;
         if (!id) id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`;
-        let photoURL = stockCache.find(x=>x.id===id)?.photoURL || "";
-        if (selectedStockPhotoFile) {
-          const photoPath = `stockPrints/${currentUser.uid}/${id}-${Date.now()}-${selectedStockPhotoFile.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
-          const r = storageRef(storage, photoPath);
-          await uploadBytes(r, selectedStockPhotoFile);
-          photoURL = await getDownloadURL(r);
-        }
+        const photoURL = stockCache.find(x=>x.id===id)?.photoURL || "";
         const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, photoURL, updatedAt: serverTimestamp()};
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
         else await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()});
