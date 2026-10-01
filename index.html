@@ -83,12 +83,14 @@
             <div class="tile" id="filamentTile"><strong id="spoolsCount">0</strong><span class="small">Spools</span></div>
             <div class="tile" id="customersTile"><strong id="customersCount">0</strong><span class="small">Customers</span></div>
             <div class="tile" id="ordersTile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
+            <div class="tile" id="stockTile"><strong id="stockCount">0</strong><span class="small">Stock Prints</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
           <button id="filamentBtn" class="secondary">Manage Filament</button>
           <button id="jobsBtn" class="secondary">Manage Print Jobs</button>
           <button id="customersBtn" class="secondary">Manage Customers</button>
           <button id="ordersBtn" class="secondary">Manage Orders</button>
+          <button id="stockBtn" class="secondary">Manage Stock Prints</button>
         </div>
 
         <div id="filamentView" class="hidden">
@@ -136,6 +138,17 @@
           <button id="addOrderBtn">+ Add Order</button>
           <div id="ordersList"></div>
           <div id="orderStatus" class="status"></div>
+        </div>
+
+        <div id="stockView" class="hidden">
+          <div class="topbar">
+            <h2>Stock Prints</h2>
+            <button id="backStockDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Track finished prints kept in inventory for craft shows and ready-to-sell stock.</p>
+          <button id="addStockBtn">+ Add Stock Print</button>
+          <div id="stockList"></div>
+          <div id="stockStatus" class="status"></div>
         </div>
 
         <div id="printersView" class="hidden">
@@ -300,6 +313,27 @@
     </div>
   </div>
 
+  <div id="stockModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="stockModalTitle">Add Stock Print</h2>
+      <input id="stockName" placeholder="Product / print name">
+      <input id="stockSku" placeholder="SKU (optional)">
+      <div class="row">
+        <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
+        <div><label class="small" for="stockShowQty">At craft show</label><input id="stockShowQty" type="number" min="0" step="1" placeholder="0"></div>
+      </div>
+      <div class="row">
+        <div><label class="small" for="stockPrice">Selling price ($)</label><input id="stockPrice" type="number" min="0" step="0.01" placeholder="0.00"></div>
+        <div><label class="small" for="stockUnitCost">Production cost each ($)</label><input id="stockUnitCost" type="number" min="0" step="0.01" placeholder="0.00"></div>
+      </div>
+      <input id="stockNotes" placeholder="Notes">
+      <div class="row">
+        <button id="saveStockBtn">Save Stock Print</button>
+        <button id="cancelStockBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="printerModal" class="modal hidden">
     <div class="modal-card">
       <h2 id="modalTitle">Add Printer</h2>
@@ -389,6 +423,9 @@
     let editingSpoolId = null;
     let filamentPresets = [];
     let editingPresetId = null;
+    let unsubscribeStock = null;
+    let stockCache = [];
+    let editingStockId = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -397,6 +434,10 @@
     const setFilamentStatus = (msg, error=false) => {
       $("filamentStatus").textContent = msg;
       $("filamentStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    };
+    const setStockStatus = (msg, error=false) => {
+      $("stockStatus").textContent = msg;
+      $("stockStatus").style.color = error ? "#ff7777" : "#ffcc66";
     };
     const setPrinterStatus = (msg, error=false) => {
       $("printerStatus").textContent = msg;
@@ -440,6 +481,12 @@
     $("customersBtn").addEventListener("click", openCustomers);
     $("customersTile").addEventListener("click", openCustomers);
     $("ordersBtn").addEventListener("click", openOrders);
+    $("stockBtn").addEventListener("click", openStock);
+    $("stockTile").addEventListener("click", openStock);
+    $("backStockDashboardBtn").addEventListener("click", () => { $("stockView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
+    $("addStockBtn").addEventListener("click", () => openStockModal());
+    $("cancelStockBtn").addEventListener("click", closeStockModal);
+    $("saveStockBtn").addEventListener("click", saveStock);
     $("ordersTile").addEventListener("click", openOrders);
     $("backCustomersDashboardBtn").addEventListener("click", () => { $("customersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
     $("backOrdersDashboardBtn").addEventListener("click", () => { $("ordersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
@@ -475,7 +522,119 @@
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["dashboardView","filamentView","jobsView","printersView","customersView","ordersView"].forEach(id => $(id).classList.add("hidden"));
+      ["dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView"].forEach(id => $(id).classList.add("hidden"));
+    }
+
+    function openStock() {
+      hideAllMainViews();
+      $("stockView").classList.remove("hidden");
+      loadStock();
+    }
+
+    function openStockModal(item=null) {
+      editingStockId = item?.id || null;
+      $("stockModalTitle").textContent = item ? "Edit Stock Print" : "Add Stock Print";
+      $("stockName").value = item?.name || "";
+      $("stockSku").value = item?.sku || "";
+      $("stockQty").value = item?.quantityOnHand ?? "";
+      $("stockShowQty").value = item?.craftShowQty ?? "";
+      $("stockPrice").value = item?.sellingPrice ?? "";
+      $("stockUnitCost").value = item?.unitCost ?? "";
+      $("stockNotes").value = item?.notes || "";
+      $("stockModal").classList.remove("hidden");
+    }
+
+    function closeStockModal() {
+      editingStockId = null;
+      $("stockModal").classList.add("hidden");
+    }
+
+    function renderStock(items) {
+      const list = $("stockList");
+      list.innerHTML = "";
+      if (!items.length) {
+        list.innerHTML = '<div class="small">No stock prints yet.</div>';
+        return;
+      }
+      items.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "job";
+        const qty = Number(item.quantityOnHand || 0);
+        const showQty = Number(item.craftShowQty || 0);
+        const available = Math.max(0, qty - showQty);
+        const price = Number(item.sellingPrice || 0);
+        const cost = Number(item.unitCost || 0);
+        const profit = price - cost;
+        row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
+        row.querySelector(".job-name").textContent = `${item.name || "Unnamed stock print"}${item.sku ? ` — ${item.sku}` : ""}`;
+        row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft show: ${showQty} • Available: ${available}`;
+        row.querySelectorAll(".job-meta")[1].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
+        row.querySelector(".cost").textContent = `Inventory value at cost: $${(qty * cost).toFixed(2)}`;
+        const actions = row.querySelector(".printer-actions");
+        const add = document.createElement("button"); add.textContent = "+1 Stock"; add.className="secondary";
+        add.onclick = () => changeStockQty(item, 1, "quantityOnHand");
+        const show = document.createElement("button"); show.textContent = "Send to Show"; show.className="secondary";
+        show.onclick = () => moveToShow(item, 1);
+        const sold = document.createElement("button"); sold.textContent = "Sell 1"; sold.className="secondary";
+        sold.onclick = () => sellStock(item, 1);
+        const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openStockModal(item);
+        const del = document.createElement("button"); del.textContent="Delete"; del.className="danger"; del.onclick=async()=>{if(!confirm("Delete this stock print?"))return;try{await deleteDoc(doc(db,"stockPrints",item.id));}catch(e){setStockStatus(e.message,true);}};
+        actions.append(add, show, sold, edit, del);
+        list.appendChild(row);
+      });
+    }
+
+    async function saveStock() {
+      const name = $("stockName").value.trim();
+      const sku = $("stockSku").value.trim();
+      const quantityOnHand = Math.max(0, Math.floor(Number($("stockQty").value || 0)));
+      const craftShowQty = Math.max(0, Math.floor(Number($("stockShowQty").value || 0)));
+      const sellingPrice = Math.max(0, Number($("stockPrice").value || 0));
+      const unitCost = Math.max(0, Number($("stockUnitCost").value || 0));
+      const notes = $("stockNotes").value.trim();
+      if (!name) return alert("Enter a product or print name.");
+      if (craftShowQty > quantityOnHand) return alert("Craft show quantity cannot be greater than quantity on hand.");
+      const data = {name, sku, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
+      try {
+        if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
+        else { const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()}); }
+        closeStockModal();
+      } catch(e) { console.error(e); alert(e.message || "Could not save stock print."); }
+    }
+
+    async function changeStockQty(item, delta, field="quantityOnHand") {
+      const current = Number(item[field] || 0);
+      const next = Math.max(0, Math.floor(current + delta));
+      if (field === "quantityOnHand" && next < Number(item.craftShowQty || 0)) return alert("You cannot reduce total stock below the quantity currently at a craft show.");
+      try { await updateDoc(doc(db,"stockPrints",item.id), {[field]:next, updatedAt:serverTimestamp()}); }
+      catch(e){ setStockStatus(e.message || "Could not update stock.", true); }
+    }
+
+    async function moveToShow(item, qty) {
+      const onHand = Number(item.quantityOnHand || 0);
+      const atShow = Number(item.craftShowQty || 0);
+      const available = onHand - atShow;
+      if (qty > available) return alert(`Only ${available} available to send to a craft show.`);
+      try { await updateDoc(doc(db,"stockPrints",item.id), {craftShowQty:atShow+qty, updatedAt:serverTimestamp()}); }
+      catch(e){ setStockStatus(e.message || "Could not move stock.", true); }
+    }
+
+    async function sellStock(item, qty) {
+      const onHand = Number(item.quantityOnHand || 0);
+      const atShow = Number(item.craftShowQty || 0);
+      if (atShow < qty) return alert(`Only ${atShow} are currently marked as being at a craft show.`);
+      try { await updateDoc(doc(db,"stockPrints",item.id), {quantityOnHand:onHand-qty, craftShowQty:atShow-qty, updatedAt:serverTimestamp()}); }
+      catch(e){ setStockStatus(e.message || "Could not record sale.", true); }
+    }
+
+    function loadStock() {
+      if (unsubscribeStock) unsubscribeStock();
+      unsubscribeStock = onSnapshot(collection(db,"stockPrints"), snap => {
+        stockCache = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+        $("stockCount").textContent = stockCache.reduce((sum,i)=>sum+Number(i.quantityOnHand||0),0);
+        renderStock(stockCache);
+        setStockStatus("");
+      }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
 
     function openPrinters() {
@@ -1129,6 +1288,7 @@
           loadJobs();
           loadCustomers();
           loadOrders();
+          loadStock();
         } catch (e) {
           console.error(e);
           setPrinterStatus(e.message || "Firestore setup is not ready yet.", true);
@@ -1139,6 +1299,7 @@
         if (unsubscribeCustomers) unsubscribeCustomers();
         if (unsubscribeOrders) unsubscribeOrders();
         if (unsubscribeJobs) unsubscribeJobs();
+        if (unsubscribeStock) unsubscribeStock();
         $("appView").classList.add("hidden");
         $("loginView").classList.remove("hidden");
       }
