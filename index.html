@@ -491,7 +491,8 @@
       onSnapshot,
       serverTimestamp,
       runTransaction,
-      getDoc
+      getDoc,
+      getDocs
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
     import QRCode from "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm";
     import JsBarcode from "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/+esm";
@@ -848,6 +849,13 @@
       });
     }
 
+    function getAssignedCraftShowQty(stockId, excludeShowId="") {
+      return craftShowsCache.reduce((sum, cs) => {
+        if (cs.id===excludeShowId || cs.status==="Closed") return sum;
+        return sum + Number((cs.loadedItems||{})[stockId]||0);
+      }, 0);
+    }
+
     async function loadStockToShow(show){
       if(show.status==='Closed') return alert("Reopen the craft show before loading stock.");
       if(!stockCache.length) await loadStock();
@@ -859,13 +867,36 @@
       try{
         await runTransaction(db,async tx=>{
           const stockRef=doc(db,"stockPrints",item.id); const showRef=doc(db,"craftShows",show.id);
-          const ss=await tx.get(stockRef), es=await tx.get(showRef); if(!ss.exists()||!es.exists()) throw new Error("Item or show no longer exists.");
-          const sd=ss.data(), ed=es.data(); const avail=Math.max(0,Number(sd.quantityOnHand||0)-Number(sd.craftShowQty||0)); if(qty>avail) throw new Error(`Only ${avail} available.`);
-          const loaded={...(ed.loadedItems||{})}; loaded[item.id]=Number(loaded[item.id]||0)+qty;
-          tx.update(stockRef,{craftShowQty:Number(sd.craftShowQty||0)+qty,updatedAt:serverTimestamp()});
+          const ss=await tx.get(stockRef), es=await tx.get(showRef);
+          if(!ss.exists()||!es.exists()) throw new Error("Item or show no longer exists.");
+          const sd=ss.data(), ed=es.data();
+          const totalOnHand=Number(sd.quantityOnHand||0);
+          const reserved=Number(sd.craftShowQty||0);
+          const assignedElsewhere=getAssignedCraftShowQty(item.id,show.id);
+          const unassignedReserved=Math.max(0,reserved-assignedElsewhere);
+          const availableToLoad=Math.max(0,totalOnHand-assignedElsewhere);
+          if(qty>availableToLoad) throw new Error(`Only ${availableToLoad} available for craft shows.`);
+
+          const loaded={...(ed.loadedItems||{})};
+          loaded[item.id]=Number(loaded[item.id]||0)+qty;
+          // If the stock was already marked "At craft show" from the Stock Prints page,
+          // consume that unassigned reservation first instead of double-counting it.
+          const fromUnassigned=Math.min(qty,unassignedReserved);
+          const additionalReservation=qty-fromUnassigned;
+          const nextReserved=reserved+additionalReservation;
+          tx.update(stockRef,{craftShowQty:nextReserved,updatedAt:serverTimestamp()});
           tx.update(showRef,{loadedItems:loaded,updatedAt:serverTimestamp()});
         });
+        await loadCraftShowsOnce();
       }catch(e){alert(e.message||"Could not load stock.");}
+    }
+
+    async function loadCraftShowsOnce(){
+      try {
+        const snap=await getDocs(collection(db,"craftShows"));
+        craftShowsCache=snap.docs.map(d=>({id:d.id,...d.data()}));
+        renderCraftShows(craftShowsCache.sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+      } catch(e) { console.error(e); }
     }
 
     async function toggleCraftShow(show){
