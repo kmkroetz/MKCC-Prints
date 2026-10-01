@@ -42,6 +42,9 @@
     .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#292929; font-size:12px; }
     .cost { margin-top:6px; font-weight:700; }
     .row { display:flex; gap:10px; }
+    .home-actions { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px; }
+    .home-btn { min-height:120px; font-size:20px; border-radius:18px; }
+    @media (max-width:520px) { .home-actions { grid-template-columns:1fr; } }
     .row > * { flex:1; }
     @media (max-width:560px){ .job-head{flex-direction:column;} .row{flex-direction:column;} }
     .printer-actions button { width:auto; margin-top:0; padding:8px 10px; font-size:13px; }
@@ -75,7 +78,18 @@
           <button id="logoutBtn" class="secondary">Log Out</button>
         </div>
 
-        <div id="dashboardView">
+        <div id="homeView">
+          <div class="home-actions">
+            <button id="manageBtn" class="home-btn">⚙️ Manage</button>
+            <button id="homePosBtn" class="home-btn">🛒 Point of Sale</button>
+          </div>
+        </div>
+
+        <div id="dashboardView" class="hidden">
+          <div class="topbar">
+            <h2>Manage</h2>
+            <button id="backHomeBtn" class="secondary">Home</button>
+          </div>
           <div class="grid">
             <div class="tile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
             <div class="tile"><strong id="jobsCount">0</strong><span class="small">Print Jobs</span></div>
@@ -506,11 +520,13 @@
     });
 
     $("logoutBtn").addEventListener("click", () => signOut(auth));
+    $("manageBtn").addEventListener("click", openManage);
+    $("homePosBtn").addEventListener("click", openPos);
+    $("backHomeBtn").addEventListener("click", openHome);
     $("printersBtn").addEventListener("click", openPrinters);
     $("jobsBtn").addEventListener("click", openJobs);
     $("backJobsDashboardBtn").addEventListener("click", () => {
-      $("jobsView").classList.add("hidden");
-      $("dashboardView").classList.remove("hidden");
+      openManage();
     });
     $("addJobBtn").addEventListener("click", () => openJobModal());
     $("cancelJobBtn").addEventListener("click", closeJobModal);
@@ -525,13 +541,13 @@
     $("ordersBtn").addEventListener("click", openOrders);
     $("stockBtn").addEventListener("click", openStock);
     $("stockTile").addEventListener("click", openStock);
-    $("backStockDashboardBtn").addEventListener("click", () => { $("stockView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
+    $("backStockDashboardBtn").addEventListener("click", () => { openManage(); });
     $("addStockBtn").addEventListener("click", () => openStockModal());
     $("cancelStockBtn").addEventListener("click", closeStockModal);
     $("saveStockBtn").addEventListener("click", saveStock);
     $("ordersTile").addEventListener("click", openOrders);
-    $("backCustomersDashboardBtn").addEventListener("click", () => { $("customersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
-    $("backOrdersDashboardBtn").addEventListener("click", () => { $("ordersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
+    $("backCustomersDashboardBtn").addEventListener("click", () => { openManage(); });
+    $("backOrdersDashboardBtn").addEventListener("click", () => { openManage(); });
     $("addCustomerBtn").addEventListener("click", () => openCustomerModal());
     $("cancelCustomerBtn").addEventListener("click", closeCustomerModal);
     $("saveCustomerBtn").addEventListener("click", saveCustomer);
@@ -542,8 +558,7 @@
     $("filamentBtn").addEventListener("click", openFilament);
     $("filamentTile").addEventListener("click", openFilament);
     $("backFilamentDashboardBtn").addEventListener("click", () => {
-      $("filamentView").classList.add("hidden");
-      $("dashboardView").classList.remove("hidden");
+      openManage();
     });
     $("addSpoolBtn").addEventListener("click", () => openSpoolModal());
     $("managePresetsBtn").addEventListener("click", openPresetManager);
@@ -556,15 +571,26 @@
     $("spoolPreset").addEventListener("change", applySelectedPreset);
     $("printersTile").addEventListener("click", openPrinters);
     $("backDashboardBtn").addEventListener("click", () => {
-      $("printersView").classList.add("hidden");
-      $("dashboardView").classList.remove("hidden");
+      openManage();
     });
     $("addPrinterBtn").addEventListener("click", () => openPrinterModal());
     $("cancelPrinterBtn").addEventListener("click", closePrinterModal);
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView"].forEach(id => $(id).classList.add("hidden"));
+      ["homeView","dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView","posView"].forEach(id => $(id).classList.add("hidden"));
+    }
+
+    function openHome() {
+      stopPosCamera();
+      hideAllMainViews();
+      $("homeView").classList.remove("hidden");
+    }
+
+    function openManage() {
+      stopPosCamera();
+      hideAllMainViews();
+      $("dashboardView").classList.remove("hidden");
     }
 
     function openStock() {
@@ -1394,7 +1420,7 @@
 
 
     $("posBtn").addEventListener("click",openPos);
-    $("backPosDashboardBtn").addEventListener("click",()=>{stopPosCamera();hideAllMainViews();$("dashboardView").classList.remove("hidden");});
+    $("backPosDashboardBtn").addEventListener("click",()=>{openHome();});
     $("posBarcode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addCodeToCart(e.currentTarget.value);}});
     $("posScanBtn").addEventListener("click",startPosCamera);
     $("posStopScanBtn").addEventListener("click",()=>{stopPosCamera();setPosScanStatus("");});
@@ -1406,6 +1432,7 @@
       if (user) {
         $("loginView").classList.add("hidden");
         $("appView").classList.remove("hidden");
+        openHome();
         $("welcome").textContent = `Logged in as ${user.email}`;
         try {
           await seedDefaultPrinters();
