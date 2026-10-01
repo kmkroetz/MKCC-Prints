@@ -81,10 +81,14 @@
             <div class="tile"><strong id="jobsCount">0</strong><span class="small">Print Jobs</span></div>
             <div class="tile" id="printersTile"><strong id="printersCount">0</strong><span class="small">Printers</span></div>
             <div class="tile" id="filamentTile"><strong id="spoolsCount">0</strong><span class="small">Spools</span></div>
+            <div class="tile" id="customersTile"><strong id="customersCount">0</strong><span class="small">Customers</span></div>
+            <div class="tile" id="ordersTile"><strong id="ordersCount">0</strong><span class="small">Open Orders</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
           <button id="filamentBtn" class="secondary">Manage Filament</button>
           <button id="jobsBtn" class="secondary">Manage Print Jobs</button>
+          <button id="customersBtn" class="secondary">Manage Customers</button>
+          <button id="ordersBtn" class="secondary">Manage Orders</button>
         </div>
 
         <div id="filamentView" class="hidden">
@@ -110,6 +114,28 @@
           <button id="addJobBtn">+ Add Print Job</button>
           <div id="jobsList"></div>
           <div id="jobStatus" class="status"></div>
+        </div>
+
+        <div id="customersView" class="hidden">
+          <div class="topbar">
+            <h2>Customers</h2>
+            <button id="backCustomersDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Keep customer contact information organized for orders.</p>
+          <button id="addCustomerBtn">+ Add Customer</button>
+          <div id="customersList"></div>
+          <div id="customerStatus" class="status"></div>
+        </div>
+
+        <div id="ordersView" class="hidden">
+          <div class="topbar">
+            <h2>Orders</h2>
+            <button id="backOrdersDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Connect customers to orders and keep production organized.</p>
+          <button id="addOrderBtn">+ Add Order</button>
+          <div id="ordersList"></div>
+          <div id="orderStatus" class="status"></div>
         </div>
 
         <div id="printersView" class="hidden">
@@ -229,6 +255,51 @@
     </div>
   </div>
 
+  <div id="customerModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="customerModalTitle">Add Customer</h2>
+      <input id="customerName" placeholder="Customer name">
+      <input id="customerPhone" placeholder="Phone">
+      <input id="customerEmail" type="email" placeholder="Email">
+      <input id="customerAddress" placeholder="Address">
+      <input id="customerNotes" placeholder="Notes">
+      <div class="row">
+        <button id="saveCustomerBtn">Save Customer</button>
+        <button id="cancelCustomerBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="orderModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="orderModalTitle">Add Order</h2>
+      <label class="small" for="orderCustomer">Customer</label>
+      <select id="orderCustomer"><option value="">Select customer</option></select>
+      <input id="orderNumber" placeholder="Order number (optional)">
+      <div class="row">
+        <div><label class="small" for="orderDate">Order date</label><input id="orderDate" type="date"></div>
+        <div><label class="small" for="orderDueDate">Due date</label><input id="orderDueDate" type="date"></div>
+      </div>
+      <input id="orderItem" placeholder="Item / product">
+      <input id="orderQuantity" type="number" min="1" step="1" placeholder="Quantity">
+      <input id="orderCustomerPrice" type="number" min="0" step="0.01" placeholder="Customer price ($)">
+      <label class="small" for="orderStatus">Status</label>
+      <select id="orderStatus">
+        <option value="Quote">Quote</option>
+        <option value="Pending">Pending</option>
+        <option value="In Production">In Production</option>
+        <option value="Ready">Ready</option>
+        <option value="Completed">Completed</option>
+        <option value="Cancelled">Cancelled</option>
+      </select>
+      <input id="orderNotes" placeholder="Notes">
+      <div class="row">
+        <button id="saveOrderBtn">Save Order</button>
+        <button id="cancelOrderBtn" class="secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="printerModal" class="modal hidden">
     <div class="modal-card">
       <h2 id="modalTitle">Add Printer</h2>
@@ -309,6 +380,12 @@
     let editingPrinterId = null;
     let unsubscribePrinters = null;
     let unsubscribeSpools = null;
+    let unsubscribeCustomers = null;
+    let unsubscribeOrders = null;
+    let editingCustomerId = null;
+    let editingOrderId = null;
+    let customersCache = [];
+    let ordersCache = [];
     let editingSpoolId = null;
     let filamentPresets = [];
     let editingPresetId = null;
@@ -360,6 +437,19 @@
     $("jobEstimatedMinutes").addEventListener("input", updateJobCostPreview);
     $("jobActualMinutes").addEventListener("input", updateJobCostPreview);
 
+    $("customersBtn").addEventListener("click", openCustomers);
+    $("customersTile").addEventListener("click", openCustomers);
+    $("ordersBtn").addEventListener("click", openOrders);
+    $("ordersTile").addEventListener("click", openOrders);
+    $("backCustomersDashboardBtn").addEventListener("click", () => { $("customersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
+    $("backOrdersDashboardBtn").addEventListener("click", () => { $("ordersView").classList.add("hidden"); $("dashboardView").classList.remove("hidden"); });
+    $("addCustomerBtn").addEventListener("click", () => openCustomerModal());
+    $("cancelCustomerBtn").addEventListener("click", closeCustomerModal);
+    $("saveCustomerBtn").addEventListener("click", saveCustomer);
+    $("addOrderBtn").addEventListener("click", () => openOrderModal());
+    $("cancelOrderBtn").addEventListener("click", closeOrderModal);
+    $("saveOrderBtn").addEventListener("click", saveOrder);
+
     $("filamentBtn").addEventListener("click", openFilament);
     $("filamentTile").addEventListener("click", openFilament);
     $("backFilamentDashboardBtn").addEventListener("click", () => {
@@ -384,29 +474,41 @@
     $("cancelPrinterBtn").addEventListener("click", closePrinterModal);
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
+    function hideAllMainViews() {
+      ["dashboardView","filamentView","jobsView","printersView","customersView","ordersView"].forEach(id => $(id).classList.add("hidden"));
+    }
+
     function openPrinters() {
-      $("dashboardView").classList.add("hidden");
-      $("filamentView").classList.add("hidden");
-      $("jobsView").classList.add("hidden");
+      hideAllMainViews();
       $("printersView").classList.remove("hidden");
       loadPrinters();
     }
 
     function openFilament() {
-      $("dashboardView").classList.add("hidden");
-      $("printersView").classList.add("hidden");
-      $("jobsView").classList.add("hidden");
+      hideAllMainViews();
       $("filamentView").classList.remove("hidden");
       loadSpools();
     }
 
     function openJobs() {
-      $("dashboardView").classList.add("hidden");
-      $("printersView").classList.add("hidden");
-      $("filamentView").classList.add("hidden");
+      hideAllMainViews();
       $("jobsView").classList.remove("hidden");
       loadJobs();
       populateJobSelects();
+    }
+
+    function openCustomers() {
+      hideAllMainViews();
+      $("customersView").classList.remove("hidden");
+      loadCustomers();
+    }
+
+    function openOrders() {
+      hideAllMainViews();
+      $("ordersView").classList.remove("hidden");
+      loadCustomers();
+      loadOrders();
+      populateOrderCustomers();
     }
 
     const DEFAULT_FILAMENT_PRESETS = [
@@ -743,6 +845,124 @@
     }
 
 
+    function setCustomerStatus(msg, error=false) {
+      $("customerStatus").textContent = msg || "";
+      $("customerStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+
+    function setOrderStatus(msg, error=false) {
+      $("orderStatus").textContent = msg || "";
+      $("orderStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+
+    function openCustomerModal(customer=null) {
+      editingCustomerId = customer?.id || null;
+      $("customerModalTitle").textContent = customer ? "Edit Customer" : "Add Customer";
+      $("customerName").value = customer?.name || "";
+      $("customerPhone").value = customer?.phone || "";
+      $("customerEmail").value = customer?.email || "";
+      $("customerAddress").value = customer?.address || "";
+      $("customerNotes").value = customer?.notes || "";
+      $("customerModal").classList.remove("hidden");
+    }
+
+    function closeCustomerModal() { editingCustomerId = null; $("customerModal").classList.add("hidden"); }
+
+    async function saveCustomer() {
+      const name = $("customerName").value.trim();
+      if (!name) return alert("Enter a customer name.");
+      const data = { name, phone: $("customerPhone").value.trim(), email: $("customerEmail").value.trim(), address: $("customerAddress").value.trim(), notes: $("customerNotes").value.trim(), updatedAt: serverTimestamp() };
+      try {
+        if (editingCustomerId) await updateDoc(doc(db,"customers",editingCustomerId), data);
+        else { const id = `${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"customers",id), {...data, createdAt: serverTimestamp()}); }
+        closeCustomerModal();
+      } catch(e) { console.error(e); alert(e.message || "Could not save customer."); }
+    }
+
+    function renderCustomers(customers) {
+      const list = $("customersList"); list.innerHTML = "";
+      if (!customers.length) { list.innerHTML = '<div class="small">No customers yet.</div>'; return; }
+      customers.forEach(c => {
+        const row = document.createElement("div"); row.className="printer";
+        const info=document.createElement("div");
+        const name=document.createElement("div"); name.className="printer-name"; name.textContent=c.name || "Unnamed";
+        const meta=document.createElement("div"); meta.className="printer-model"; meta.textContent=[c.phone,c.email].filter(Boolean).join(" • ") || "No contact details";
+        const addr=document.createElement("div"); addr.className="small"; addr.textContent=c.address || "";
+        info.append(name,meta,addr);
+        const actions=document.createElement("div"); actions.className="printer-actions";
+        const edit=document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openCustomerModal(c);
+        const del=document.createElement("button"); del.textContent="Delete"; del.className="danger"; del.onclick=async()=>{ if(!confirm(`Delete ${c.name}?`)) return; try{ await deleteDoc(doc(db,"customers",c.id)); }catch(e){setCustomerStatus(e.message,true);} };
+        actions.append(edit,del); row.append(info,actions); list.appendChild(row);
+      });
+    }
+
+    function loadCustomers() {
+      if(unsubscribeCustomers) unsubscribeCustomers();
+      unsubscribeCustomers=onSnapshot(collection(db,"customers"),snap=>{
+        customersCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+        $("customersCount").textContent=customersCache.length;
+        renderCustomers(customersCache);
+        populateOrderCustomers();
+      },err=>{console.error(err);setCustomerStatus(err.message||"Could not load customers.",true);});
+    }
+
+    function populateOrderCustomers(selectedId="") {
+      const select=$("orderCustomer"); if(!select) return;
+      select.innerHTML='<option value="">Select customer</option>';
+      customersCache.forEach(c=>{const o=document.createElement("option");o.value=c.id;o.textContent=c.name;select.appendChild(o);});
+      if(selectedId) select.value=selectedId;
+    }
+
+    function openOrderModal(order=null) {
+      editingOrderId=order?.id||null;
+      $("orderModalTitle").textContent=order?"Edit Order":"Add Order";
+      populateOrderCustomers(order?.customerId||"");
+      $("orderNumber").value=order?.orderNumber||"";
+      $("orderDate").value=order?.orderDate||new Date().toISOString().slice(0,10);
+      $("orderDueDate").value=order?.dueDate||"";
+      $("orderItem").value=order?.itemName||"";
+      $("orderQuantity").value=order?.quantity??1;
+      $("orderCustomerPrice").value=order?.customerPrice??"";
+      $("orderStatus").value=order?.status||"Pending";
+      $("orderNotes").value=order?.notes||"";
+      $("orderModal").classList.remove("hidden");
+    }
+
+    function closeOrderModal(){ editingOrderId=null; $("orderModal").classList.add("hidden"); }
+
+    async function saveOrder(){
+      const customerId=$("orderCustomer").value; const itemName=$("orderItem").value.trim(); const quantity=Math.max(1,Number($("orderQuantity").value||1));
+      if(!customerId||!itemName) return alert("Select a customer and enter an item/product.");
+      const data={ customerId, orderNumber:$("orderNumber").value.trim(), orderDate:$("orderDate").value, dueDate:$("orderDueDate").value, itemName, quantity, customerPrice:Number($("orderCustomerPrice").value||0), status:$("orderStatus").value, notes:$("orderNotes").value.trim(), updatedAt:serverTimestamp() };
+      try{
+        if(editingOrderId) await updateDoc(doc(db,"orders",editingOrderId),data);
+        else { const id=`${Date.now()}-${itemName.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"orders",id),{...data,createdAt:serverTimestamp()}); }
+        closeOrderModal();
+      }catch(e){console.error(e);alert(e.message||"Could not save order.");}
+    }
+
+    function renderOrders(orders){
+      const list=$("ordersList"); list.innerHTML=""; if(!orders.length){list.innerHTML='<div class="small">No orders yet.</div>';return;}
+      orders.forEach(o=>{
+        const row=document.createElement("div");row.className="job";
+        const customer=customersCache.find(c=>c.id===o.customerId);
+        row.innerHTML='<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
+        row.querySelector(".job-name").textContent=`${o.orderNumber?`#${o.orderNumber} — `:""}${o.itemName}`;
+        row.querySelectorAll(".job-meta")[0].textContent=`${customer?.name||"Unknown customer"} • Qty ${o.quantity||1} • ${o.status||"Pending"}`;
+        row.querySelectorAll(".job-meta")[1].textContent=`Ordered ${o.orderDate||"—"}${o.dueDate?` • Due ${o.dueDate}`:""}`;
+        row.querySelector(".cost").textContent=`Customer price: $${Number(o.customerPrice||0).toFixed(2)}`;
+        const actions=row.querySelector(".printer-actions"); const edit=document.createElement("button");edit.textContent="Edit";edit.className="secondary";edit.onclick=()=>openOrderModal(o); const del=document.createElement("button");del.textContent="Delete";del.className="danger";del.onclick=async()=>{if(!confirm("Delete this order?"))return;try{await deleteDoc(doc(db,"orders",o.id));}catch(e){setOrderStatus(e.message,true);}}; actions.append(edit,del); list.appendChild(row);
+      });
+    }
+
+    function loadOrders(){
+      if(unsubscribeOrders) unsubscribeOrders();
+      unsubscribeOrders=onSnapshot(collection(db,"orders"),snap=>{
+        ordersCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+        const open=ordersCache.filter(o=>!["Completed","Cancelled"].includes(o.status)).length; $("ordersCount").textContent=open; renderOrders(ordersCache); setOrderStatus("");
+      },err=>{console.error(err);setOrderStatus(err.message||"Could not load orders.",true);});
+    }
+
     function setJobStatus(msg, error=false) {
       $("jobStatus").textContent = msg || "";
       $("jobStatus").style.color = error ? "#ff7777" : "#ffcc66";
@@ -907,6 +1127,8 @@
           await seedFilamentPresets();
           loadPrinters();
           loadJobs();
+          loadCustomers();
+          loadOrders();
         } catch (e) {
           console.error(e);
           setPrinterStatus(e.message || "Firestore setup is not ready yet.", true);
@@ -914,6 +1136,8 @@
       } else {
         if (unsubscribePrinters) unsubscribePrinters();
         if (unsubscribeSpools) unsubscribeSpools();
+        if (unsubscribeCustomers) unsubscribeCustomers();
+        if (unsubscribeOrders) unsubscribeOrders();
         if (unsubscribeJobs) unsubscribeJobs();
         $("appView").classList.add("hidden");
         $("loginView").classList.remove("hidden");

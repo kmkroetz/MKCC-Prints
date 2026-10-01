@@ -1,11 +1,11 @@
-# MKCC Prints v0.3
+# MKCC Prints v0.8
 
-Firebase-backed MKCC Prints management app.
+Adds customer and order management to the MKCC Prints Firebase app.
 
-Features:
-- Firebase Email/Password authentication
-- Firestore printer management
-- Filament/spool inventory in grams
-- Actual purchase price and automatic cost-per-gram calculation
-- Seeded first spool: Inland PLA Basic White, 1000 g, $10.00
-- GitHub Pages compatible
+## Includes
+- Customers: name, phone, email, address, notes
+- Orders: customer, order number, dates, item, quantity, customer price, status, notes
+- Cloud-saved customer and order data in Firestore
+- Dashboard counts for customers and open orders
+- Edit/delete support
+- Orders are ready to be connected to print jobs in a later version
