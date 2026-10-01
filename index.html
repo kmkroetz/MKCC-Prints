@@ -493,8 +493,6 @@
       runTransaction,
       getDoc
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-    import QRCode from "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm";
-    import JsBarcode from "https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/+esm";
 
     const firebaseConfig = {
       apiKey: "AIzaSyB8agDN8iMc06jfb17HypE0BZnfEQeLdG0",
@@ -1049,6 +1047,15 @@
     async function renderLabels(){
       const area=$("labelPrintArea"); area.innerHTML=""; if(!labelStockItem)return;
       const qty=Math.min(100,Math.max(1,Math.floor(Number($("labelQuantity").value||1))));
+      let QRCode, JsBarcode;
+      try {
+        ({ default: QRCode } = await import("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm"));
+        ({ default: JsBarcode } = await import("https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/+esm"));
+      } catch (e) {
+        console.error(e);
+        area.innerHTML = '<div class="status">QR/barcode label libraries could not be loaded. Login and the rest of the app are still available.</div>';
+        return;
+      }
       const code=String(labelStockItem.barcode||labelStockItem.sku||labelStockItem.id);
       for(let i=0;i<qty;i++){
         const label=document.createElement("div"); label.className="product-label";
