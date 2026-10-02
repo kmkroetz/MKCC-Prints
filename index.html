@@ -873,6 +873,7 @@
         craftShowsCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
         $("craftShowsCount").textContent=craftShowsCache.filter(x=>x.status!=="Closed").length;
         renderCraftShows(craftShowsCache);
+        refreshPosEventOptions();
       },e=>setCraftShowStatus(e.message||"Could not load craft shows.",true));
     }
 
@@ -1131,7 +1132,7 @@
       }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
 
-    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); refreshPosEventOptions(); renderPosCart(); loadStock(); setPosStatus(""); }
+    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); if(!unsubscribeCraftShows) loadCraftShows(); refreshPosEventOptions(); renderPosCart(); loadStock(); setPosStatus(""); }
 
     function openPrinters() {
       hideAllMainViews();
