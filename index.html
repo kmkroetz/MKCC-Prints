@@ -751,21 +751,13 @@
       });
     }
 
-    async function printStockLabels(item) {
-      const code = String(item.barcode || item.sku || "").trim();
-      if (!code) return alert("Add a barcode or SKU to this stock print before printing labels.");
+    async function printLabelsForItems(entries) {
+      const items = (entries || []).filter(e => e && e.item);
+      if (!items.length) return alert("There are no stock items to print for this show.");
       try {
         await loadExternalScript("https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js");
         await loadExternalScript("https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js");
-        const qtyRaw = prompt("How many labels?", "1");
-        if (qtyRaw === null) return;
-        const qty = Math.max(1, Math.min(100, Math.floor(Number(qtyRaw) || 0)));
-        const title = item.name || "MKCC Print";
-        const sku = item.sku || code;
-        const price = Number(item.sellingPrice || 0).toFixed(2);
 
-        // Generate the labels in the main page. This avoids opening a second tab
-        // where external barcode/QR libraries may not load reliably.
         const old = document.getElementById("mkccPrintLabels");
         if (old) old.remove();
         const oldStyle = document.getElementById("mkccPrintStyle");
@@ -777,15 +769,15 @@
           #mkccPrintLabels{display:none}
           @media print{
             body > *:not(#mkccPrintLabels){display:none !important}
-            #mkccPrintLabels{display:flex !important;flex-wrap:wrap;gap:10px;padding:0;margin:0;font-family:Arial,sans-serif}
-            #mkccPrintLabels .mkcc-label{width:3.25in;min-height:2.2in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:flex-start}
-            #mkccPrintLabels .brand{font-weight:800;font-size:12px;letter-spacing:.08em}
-            #mkccPrintLabels .name{font-weight:700;font-size:18px;margin:4px 0}
-            #mkccPrintLabels .price{font-size:22px;font-weight:800;margin-bottom:5px}
+            #mkccPrintLabels{display:flex !important;flex-wrap:wrap;gap:10px;padding:0;margin:0;font-family:Arial,sans-serif;color:#000}
+            #mkccPrintLabels .mkcc-label{width:3.25in;min-height:2.2in;border:1px solid #000;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;color:#000}
+            #mkccPrintLabels .brand{font-weight:800;font-size:12px;letter-spacing:.08em;color:#000}
+            #mkccPrintLabels .name{font-weight:700;font-size:18px;margin:4px 0;color:#000}
+            #mkccPrintLabels .price{font-size:22px;font-weight:800;margin-bottom:5px;color:#000}
             #mkccPrintLabels .barcode{width:2.35in;height:.7in}
             #mkccPrintLabels .qr{width:80px;height:80px;margin:4px auto}
             #mkccPrintLabels .qr img,#mkccPrintLabels .qr canvas{width:80px !important;height:80px !important}
-            #mkccPrintLabels .sku{font-size:11px;margin-top:3px}
+            #mkccPrintLabels .sku{font-size:11px;margin-top:3px;color:#000}
             @page{margin:.25in}
           }`;
         document.head.appendChild(style);
@@ -795,16 +787,28 @@
         document.body.appendChild(printArea);
 
         const safe = (v) => String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
-        for (let i = 0; i < qty; i++) {
-          const label = document.createElement("div");
-          label.className = "mkcc-label";
-          label.innerHTML = `<div class="brand">MKCC Prints</div><div class="name">${safe(title)}</div><div class="price">$${price}</div><svg class="barcode"></svg><div class="qr"></div><div class="sku">SKU: ${safe(sku)}</div>`;
-          printArea.appendChild(label);
-          const svg = label.querySelector("svg.barcode");
-          JsBarcode(svg, code, {format:"CODE128", displayValue:true, fontSize:12, margin:2, width:2, height:42});
-          new QRCode(label.querySelector(".qr"), {text:code, width:80, height:80, correctLevel:QRCode.CorrectLevel.M});
+        for (const entry of items) {
+          const item = entry.item;
+          const qty = Math.max(1, Math.min(100, Math.floor(Number(entry.qty) || 1)));
+          const code = String(item.barcode || item.sku || "").trim();
+          if (!code) continue;
+          const title = item.name || "MKCC Print";
+          const sku = item.sku || code;
+          const price = Number(item.sellingPrice || 0).toFixed(2);
+          for (let i = 0; i < qty; i++) {
+            const label = document.createElement("div");
+            label.className = "mkcc-label";
+            label.innerHTML = `<div class="brand">MKCC Prints</div><div class="name">${safe(title)}</div><div class="price">$${price}</div><svg class="barcode"></svg><div class="qr"></div><div class="sku">SKU: ${safe(sku)}</div>`;
+            printArea.appendChild(label);
+            const svg = label.querySelector("svg.barcode");
+            JsBarcode(svg, code, {format:"CODE128", displayValue:true, fontSize:12, margin:2, width:2, height:42, lineColor:"#000", text:""});
+            new QRCode(label.querySelector(".qr"), {text:code, width:80, height:80, correctLevel:QRCode.CorrectLevel.M, colorDark:"#000000", colorLight:"#ffffff"});
+          }
         }
-
+        if (!printArea.children.length) {
+          printArea.remove(); style.remove();
+          return alert("No items with a barcode or SKU are available to print.");
+        }
         const cleanup = () => {
           printArea.remove();
           style.remove();
@@ -816,6 +820,15 @@
         console.error(e);
         alert(e.message || "Could not generate labels.");
       }
+    }
+
+    async function printStockLabels(item) {
+      const code = String(item.barcode || item.sku || "").trim();
+      if (!code) return alert("Add a barcode or SKU to this stock print before printing labels.");
+      const qtyRaw = prompt("How many labels?", "1");
+      if (qtyRaw === null) return;
+      const qty = Math.max(1, Math.min(100, Math.floor(Number(qtyRaw) || 0)));
+      await printLabelsForItems([{item, qty}]);
     }
 
     function setCraftShowStatus(msg, error=false) {
@@ -902,14 +915,26 @@
           <div class="tile"><strong>$${expenses.toFixed(2)}</strong><span class="small">Other Expenses</span></div>
           <div class="tile"><strong>$${profit.toFixed(2)}</strong><span class="small">Est. Net</span></div>
         </div>
-        <div class="row" style="margin-top:12px;"><button id="loadStockDetailBtn" class="secondary">+ Load Stock</button><button id="expenseShowBtn" class="secondary">Add Expense</button><button id="recordShowSaleBtn" class="secondary">Record Sale</button></div>
+        <div class="row" style="margin-top:12px;"><button id="loadStockDetailBtn" class="secondary">+ Load Stock</button><button id="printShowLabelsBtn" class="secondary">🏷️ Print All Labels</button><button id="expenseShowBtn" class="secondary">Add Expense</button><button id="recordShowSaleBtn" class="secondary">Record Sale</button></div>
         <h4>Inventory Loaded</h4><div>${rows||'<div class="small">No stock loaded yet.</div>'}</div>
         <div class="small" style="margin-top:10px;">Production cost is based on the cost of items actually recorded as sold.</div>`;
       $("closeShowDetail").onclick=()=>detail.classList.add("hidden");
       $("loadStockDetailBtn").onclick=()=>loadStockToShow(show);
+      $("printShowLabelsBtn").onclick=()=>printAllShowLabels(show);
       $("expenseShowBtn").onclick=()=>addShowExpense(show);
       $("recordShowSaleBtn").onclick=()=>recordShowSale(show);
       detail.querySelectorAll('[data-return]').forEach(btn=>btn.onclick=()=>returnStockFromShow(show,btn.dataset.return));
+    }
+
+    async function printAllShowLabels(show){
+      const entries=Object.entries(show.loadedItems||{}).map(([id,qty])=>({item:stockCache.find(x=>x.id===id),qty:1})).filter(e=>e.item&&Number(qty||0)>0);
+      if(!entries.length)return alert("This craft show has no loaded stock to print.");
+      const missing=entries.filter(e=>!String(e.item.barcode||e.item.sku||"").trim());
+      if(missing.length){
+        const names=missing.map(e=>e.item.name||"Unnamed").join(", ");
+        if(!confirm(`These items have no barcode or SKU and will be skipped:\n\n${names}\n\nContinue printing the other labels?`))return;
+      }
+      await printLabelsForItems(entries);
     }
 
     function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
