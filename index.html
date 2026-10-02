@@ -760,17 +760,63 @@
         const qtyRaw = prompt("How many labels?", "1");
         if (qtyRaw === null) return;
         const qty = Math.max(1, Math.min(100, Math.floor(Number(qtyRaw) || 0)));
-        const title = escapeHtml(item.name || "MKCC Print");
-        const sku = escapeHtml(item.sku || code);
+        const title = item.name || "MKCC Print";
+        const sku = item.sku || code;
         const price = Number(item.sellingPrice || 0).toFixed(2);
-        const labels = Array.from({length: qty}, (_, i) => `<div class="label"><div class="brand">MKCC Prints</div><div class="name">${title}</div><div class="price">$${price}</div><svg id="bar-${i}" class="barcode"></svg><div id="qr-${i}" class="qr"></div><div class="sku">SKU: ${sku}</div></div>`).join("");
-        const w = window.open("", "_blank");
-        if (!w) return alert("Your browser blocked the label window. Allow pop-ups for your MKCC Prints site and try again.");
-        w.document.write(`<!doctype html><html><head><title>MKCC Prints Labels</title><style>body{font-family:Arial,sans-serif;margin:12px}.sheet{display:flex;flex-wrap:wrap;gap:10px}.label{width:3.25in;min-height:2.2in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;text-align:center}.brand{font-weight:800;font-size:12px;letter-spacing:.08em}.name{font-weight:700;font-size:18px;margin:4px 0}.price{font-size:22px;font-weight:800;margin-bottom:5px}.barcode{width:2.35in;height:.7in}.qr{width:80px;height:80px;margin:4px auto}.sku{font-size:11px;margin-top:3px}@media print{body{margin:0}.label{border:1px solid #222}}@page{margin:.25in}</style></head><body><div class="sheet">${labels}</div><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script><script>window.onload=()=>{document.querySelectorAll("svg.barcode").forEach(el=>JsBarcode(el,"${JSON.stringify(code)}",{format:"CODE128",displayValue:true,fontSize:12,margin:2,width:2,height:42}));document.querySelectorAll(".qr").forEach(el=>new QRCode(el,{text:"${JSON.stringify(code)}",width:80,height:80,correctLevel:QRCode.CorrectLevel.M}));setTimeout(()=>window.print(),400);};<\/script></body></html>`);
-        w.document.close();
-      } catch (e) { console.error(e); alert(e.message || "Could not generate labels."); }
-    }
 
+        // Generate the labels in the main page. This avoids opening a second tab
+        // where external barcode/QR libraries may not load reliably.
+        const old = document.getElementById("mkccPrintLabels");
+        if (old) old.remove();
+        const oldStyle = document.getElementById("mkccPrintStyle");
+        if (oldStyle) oldStyle.remove();
+
+        const style = document.createElement("style");
+        style.id = "mkccPrintStyle";
+        style.textContent = `
+          #mkccPrintLabels{display:none}
+          @media print{
+            body > *:not(#mkccPrintLabels){display:none !important}
+            #mkccPrintLabels{display:flex !important;flex-wrap:wrap;gap:10px;padding:0;margin:0;font-family:Arial,sans-serif}
+            #mkccPrintLabels .mkcc-label{width:3.25in;min-height:2.2in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:flex-start}
+            #mkccPrintLabels .brand{font-weight:800;font-size:12px;letter-spacing:.08em}
+            #mkccPrintLabels .name{font-weight:700;font-size:18px;margin:4px 0}
+            #mkccPrintLabels .price{font-size:22px;font-weight:800;margin-bottom:5px}
+            #mkccPrintLabels .barcode{width:2.35in;height:.7in}
+            #mkccPrintLabels .qr{width:80px;height:80px;margin:4px auto}
+            #mkccPrintLabels .qr img,#mkccPrintLabels .qr canvas{width:80px !important;height:80px !important}
+            #mkccPrintLabels .sku{font-size:11px;margin-top:3px}
+            @page{margin:.25in}
+          }`;
+        document.head.appendChild(style);
+
+        const printArea = document.createElement("div");
+        printArea.id = "mkccPrintLabels";
+        document.body.appendChild(printArea);
+
+        const safe = (v) => String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+        for (let i = 0; i < qty; i++) {
+          const label = document.createElement("div");
+          label.className = "mkcc-label";
+          label.innerHTML = `<div class="brand">MKCC Prints</div><div class="name">${safe(title)}</div><div class="price">$${price}</div><svg class="barcode"></svg><div class="qr"></div><div class="sku">SKU: ${safe(sku)}</div>`;
+          printArea.appendChild(label);
+          const svg = label.querySelector("svg.barcode");
+          JsBarcode(svg, code, {format:"CODE128", displayValue:true, fontSize:12, margin:2, width:2, height:42});
+          new QRCode(label.querySelector(".qr"), {text:code, width:80, height:80, correctLevel:QRCode.CorrectLevel.M});
+        }
+
+        const cleanup = () => {
+          printArea.remove();
+          style.remove();
+          window.removeEventListener("afterprint", cleanup);
+        };
+        window.addEventListener("afterprint", cleanup);
+        setTimeout(() => window.print(), 150);
+      } catch (e) {
+        console.error(e);
+        alert(e.message || "Could not generate labels.");
+      }
+    }
 
     function setCraftShowStatus(msg, error=false) {
       $("craftShowStatus").textContent = msg;
