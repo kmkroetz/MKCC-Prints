@@ -651,6 +651,7 @@
       $("stockModalTitle").textContent = item ? "Edit Stock Print" : "Add Stock Print";
       $("stockName").value = item?.name || "";
       $("stockSku").value = item?.sku || "";
+      $("stockBarcode").value = item?.barcode || "";
       $("stockQty").value = item?.quantityOnHand ?? "";
       $("stockShowQty").value = item?.craftShowQty ?? "";
       $("stockPrice").value = item?.sellingPrice ?? "";
@@ -693,9 +694,10 @@
         show.onclick = () => moveToShow(item, 1);
         const sold = document.createElement("button"); sold.textContent = "Sell 1"; sold.className="secondary";
         sold.onclick = () => sellStock(item, 1);
+        const label = document.createElement("button"); label.textContent="🏷️ Label"; label.className="secondary"; label.onclick=()=>printStockLabels(item);
         const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openStockModal(item);
         const del = document.createElement("button"); del.textContent="Delete"; del.className="danger"; del.onclick=async()=>{if(!confirm("Delete this stock print?"))return;try{await deleteDoc(doc(db,"stockPrints",item.id));}catch(e){setStockStatus(e.message,true);}};
-        actions.append(add, show, sold, edit, del);
+        actions.append(add, show, sold, label, edit, del);
         list.appendChild(row);
       });
     }
@@ -745,6 +747,64 @@
       if (atShow < qty) return alert(`Only ${atShow} are currently marked as being at a craft show.`);
       try { await updateDoc(doc(db,"stockPrints",item.id), {quantityOnHand:onHand-qty, craftShowQty:atShow-qty, updatedAt:serverTimestamp()}); }
       catch(e){ setStockStatus(e.message || "Could not record sale.", true); }
+    }
+
+
+    let barcodeLibPromise = null;
+    let qrLibPromise = null;
+
+    function loadExternalScript(src, globalName) {
+      return new Promise((resolve, reject) => {
+        if (window[globalName]) return resolve(window[globalName]);
+        const existing = document.querySelector(`script[data-mkcc-lib="${globalName}"]`);
+        if (existing) {
+          existing.addEventListener("load", () => resolve(window[globalName]), {once:true});
+          existing.addEventListener("error", () => reject(new Error(`Could not load ${globalName}.`)), {once:true});
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.dataset.mkccLib = globalName;
+        script.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(`${globalName} loaded but was not available.`));
+        script.onerror = () => reject(new Error(`Could not load ${globalName}. Check your internet connection and try again.`));
+        document.head.appendChild(script);
+      });
+    }
+
+    function loadBarcodeLib() {
+      if (!barcodeLibPromise) barcodeLibPromise = loadExternalScript("https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js", "JsBarcode");
+      return barcodeLibPromise;
+    }
+
+    function loadQrLib() {
+      if (!qrLibPromise) qrLibPromise = loadExternalScript("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js", "QRCode");
+      return qrLibPromise;
+    }
+
+    async function printStockLabels(item) {
+      const code = String(item.barcode || item.sku || "").trim();
+      if (!code) return alert("This stock print needs a SKU or barcode before a label can be made.");
+      const qty = Math.max(1, Math.min(100, Math.floor(Number(prompt("How many labels?", "1") || 0))));
+      if (!qty) return;
+      try {
+        await Promise.all([loadBarcodeLib(), loadQrLib()]);
+        const svg = document.createElement("svg");
+        JsBarcode(svg, code, {format:"CODE128", displayValue:true, fontSize:16, margin:4, width:2, height:54});
+        const barcodeSvg = new XMLSerializer().serializeToString(svg);
+        const qrDataUrl = await QRCode.toDataURL(code, {width:180, margin:1, errorCorrectionLevel:"M"});
+        const title = escapeHtml(item.name || "MKCC Print");
+        const sku = escapeHtml(item.sku || code);
+        const price = Number(item.sellingPrice || 0).toFixed(2);
+        const labels = Array.from({length:qty}, () => `<div class="label"><div class="brand">MKCC Prints</div><div class="name">${title}</div><div class="price">$${price}</div><div class="codes"><div class="barcode">${barcodeSvg}</div><img class="qr" src="${qrDataUrl}" alt="QR code"></div><div class="sku">SKU: ${sku}</div></div>`).join("");
+        const w = window.open("", "_blank", "noopener,noreferrer");
+        if (!w) return alert("Your browser blocked the label window. Allow pop-ups for your MKCC Prints site and try again.");
+        w.document.write(`<!doctype html><html><head><title>MKCC Prints Labels</title><style>body{font-family:Arial,sans-serif;margin:12px}.sheet{display:flex;flex-wrap:wrap;gap:10px}.label{width:3.25in;min-height:2.1in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;text-align:center}.brand{font-weight:800;font-size:12px;letter-spacing:.08em}.name{font-weight:700;font-size:18px;margin:4px 0}.price{font-size:22px;font-weight:800;margin-bottom:4px}.codes{display:flex;align-items:center;justify-content:center;gap:8px}.barcode{width:2.2in}.barcode svg{max-width:100%;height:auto}.qr{width:72px;height:72px}.sku{font-size:11px;margin-top:3px}@media print{body{margin:0}.label{border:1px solid #222}}@page{margin:.25in}</style></head><body><div class="sheet">${labels}</div><script>window.onload=()=>setTimeout(()=>window.print(),300);</script></body></html>`);
+        w.document.close();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || "Could not generate the label.");
+      }
     }
 
 
