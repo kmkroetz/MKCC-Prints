@@ -208,7 +208,7 @@
               <option value="Card">Card</option>
               <option value="Other">Other</option>
             </select>
-            <select id="posEventName"><option value="">General Sale (No Craft Show)</option></select>
+            <input id="posEventName" placeholder="Craft show / event (optional)">
             <button id="posCompleteBtn">Complete Sale</button>
             <button id="posClearBtn" class="secondary">Clear Cart</button>
             <div id="posStatus" class="status"></div>
@@ -1051,61 +1051,33 @@
       const c=(code||"").trim(); if(!c) return null;
       return stockCache.find(i => String(i.barcode||"").trim()===c || String(i.sku||"").trim()===c);
     }
-    function refreshPosEventOptions(){
-      const sel=$("posEventName"); if(!sel)return;
-      const current=sel.value;
-      sel.innerHTML='<option value="">General Sale (No Craft Show)</option>' + craftShowsCache.filter(s=>s.status!=="Closed").map(s=>`<option value="${escapeHtml(s.id)}">${escapeHtml(s.name||"Unnamed Show")} — ${escapeHtml(s.date||"")}</option>`).join("");
-      if(craftShowsCache.some(s=>s.id===current && s.status!=="Closed")) sel.value=current;
-    }
-    function getSelectedPosShow(){
-      const id=$("posEventName")?.value||""; return craftShowsCache.find(s=>s.id===id && s.status!=="Closed")||null;
-    }
     function addCodeToCart(code) {
       const item=findStockByCode(code);
       if(!item) return setPosScanStatus(`No stock print found for barcode/SKU: ${code}`, true);
-      const show=getSelectedPosShow();
-      const available=show ? Number((show.loadedItems||{})[item.id]||0) : Math.max(0,Number(item.quantityOnHand||0)-Number(item.craftShowQty||0));
+      const available=Math.max(0,Number(item.quantityOnHand||0)-Number(item.craftShowQty||0));
       const existing=posCart.find(l=>l.item.id===item.id);
-      if((existing?existing.qty:0)>=available) return setPosScanStatus(show ? `${item.name} has ${available} available at this show.` : `No available inventory for ${item.name}.`, true);
+      if((existing?existing.qty:0)>=available) return setPosScanStatus(`No available inventory for ${item.name}.`, true);
       if(existing) existing.qty++; else posCart.push({item,qty:1});
       $("posBarcode").value=""; setPosScanStatus(`${item.name} added to cart.`); renderPosCart();
     }
     async function completePosSale() {
       if(!posCart.length) return setPosStatus("Cart is empty.",true);
-      const paymentMethod=$("posPaymentMethod").value; const show=getSelectedPosShow(); const eventName=show?.name||"";
+      const paymentMethod=$("posPaymentMethod").value; const eventName=$("posEventName").value.trim();
       const total=posCart.reduce((sum,l)=>sum+Number(l.item.sellingPrice||0)*l.qty,0);
       try {
         const saleLines=posCart.map(l=>({stockId:l.item.id,name:l.item.name,sku:l.item.sku||"",barcode:l.item.barcode||"",qty:l.qty,unitPrice:Number(l.item.sellingPrice||0),unitCost:Number(l.item.unitCost||0)}));
         await runTransaction(db, async transaction => {
-          let showData=null;
-          if(show){
-            const showRef=doc(db,"craftShows",show.id); const showSnap=await transaction.get(showRef);
-            if(!showSnap.exists()) throw new Error("Craft show no longer exists.");
-            showData=showSnap.data(); if(showData.status==="Closed") throw new Error("This craft show is closed.");
-          }
           for(const line of saleLines){
             const ref=doc(db,"stockPrints",line.stockId); const snap=await transaction.get(ref);
             if(!snap.exists()) throw new Error(`${line.name} no longer exists.`);
-            const data=snap.data();
-            if(show){
-              const loaded=Number((showData.loadedItems||{})[line.stockId]||0);
-              if(line.qty>loaded) throw new Error(`Not enough ${line.name} at this show. Available: ${loaded}.`);
-              const newLoaded={...(showData.loadedItems||{})}; newLoaded[line.stockId]=loaded-line.qty; if(!newLoaded[line.stockId]) delete newLoaded[line.stockId];
-              showData.loadedItems=newLoaded;
-              transaction.update(ref,{quantityOnHand:Math.max(0,Number(data.quantityOnHand||0)-line.qty),craftShowQty:Math.max(0,Number(data.craftShowQty||0)-line.qty),assignedCraftShowQty:Math.max(0,Number(data.assignedCraftShowQty||0)-line.qty),updatedAt:serverTimestamp()});
-            } else {
-              const available=Math.max(0,Number(data.quantityOnHand||0)-Number(data.craftShowQty||0));
-              if(line.qty>available) throw new Error(`Not enough available inventory for ${line.name}. Available: ${available}.`);
-              transaction.update(ref,{quantityOnHand:Number(data.quantityOnHand||0)-line.qty,updatedAt:serverTimestamp()});
-            }
+            const data=snap.data(); const available=Math.max(0,Number(data.quantityOnHand||0)-Number(data.craftShowQty||0));
+            if(line.qty>available) throw new Error(`Not enough available inventory for ${line.name}. Available: ${available}.`);
+            transaction.update(ref,{quantityOnHand:Number(data.quantityOnHand||0)-line.qty,updatedAt:serverTimestamp()});
           }
           const saleRef=doc(collection(db,"sales"));
-          transaction.set(saleRef,{lines:saleLines,total,paymentMethod,eventName,craftShowId:show?.id||"",createdAt:serverTimestamp(),userEmail:currentUser?.email||""});
-          if(show){
-            transaction.update(doc(db,"craftShows",show.id),{loadedItems:showData.loadedItems||{},salesTotal:Number(showData.salesTotal||0)+total,salesCost:Number(showData.salesCost||0)+saleLines.reduce((n,l)=>n+l.qty*l.unitCost,0),updatedAt:serverTimestamp()});
-          }
+          transaction.set(saleRef,{lines:saleLines,total,paymentMethod,eventName,createdAt:serverTimestamp(),userEmail:currentUser?.email||""});
         });
-        posCart=[]; renderPosCart(); $("posEventName").value=""; setPosStatus(`Sale completed — $${total.toFixed(2)}${show?` at ${show.name}`:""}.`);
+        posCart=[]; renderPosCart(); $("posEventName").value=""; setPosStatus(`Sale completed — $${total.toFixed(2)}.`);
       } catch(e){ console.error(e); setPosStatus(e.message||"Could not complete sale.",true); }
     }
     async function startPosCamera() {
@@ -1131,7 +1103,7 @@
       }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
 
-    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); refreshPosEventOptions(); renderPosCart(); loadStock(); setPosStatus(""); }
+    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); renderPosCart(); loadStock(); setPosStatus(""); }
 
     function openPrinters() {
       hideAllMainViews();
