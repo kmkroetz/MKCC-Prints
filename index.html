@@ -927,7 +927,7 @@
     }
 
     async function printAllShowLabels(show){
-      const entries=Object.entries(show.loadedItems||{}).map(([id,qty])=>({item:stockCache.find(x=>x.id===id),qty:1})).filter(e=>e.item&&Number(qty||0)>0);
+      const entries=Object.entries(show.loadedItems||{}).map(([id,qty])=>({item:stockCache.find(x=>x.id===id),qty:1})).filter(e=>e.item);
       if(!entries.length)return alert("This craft show has no loaded stock to print.");
       const missing=entries.filter(e=>!String(e.item.barcode||e.item.sku||"").trim());
       if(missing.length){
