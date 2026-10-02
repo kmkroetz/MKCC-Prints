@@ -178,6 +178,7 @@
           <button id="addCraftShowBtn">+ Add Craft Show</button>
           <div id="craftShowsList"></div>
           <div id="craftShowStatus" class="status"></div>
+          <div id="craftShowDetail" class="card hidden" style="margin-top:14px;"></div>
         </div>
 
         <div id="posView" class="hidden">
@@ -759,80 +760,178 @@
       $("craftShowStatus").style.color = error ? "#ff7777" : "#ffcc66";
     }
 
-    function openCraftShows() {
-      hideAllMainViews(); $("craftShowsView").classList.remove("hidden"); loadCraftShows();
+    function openCraftShows(){
+      hideAllMainViews();
+      $("craftShowsView").classList.remove("hidden");
+      $("craftShowDetail").classList.add("hidden");
+      loadCraftShows();
+      loadStock();
     }
 
-    function openCraftShowModal(show=null) {
-      editingCraftShowId = show?.id || null;
-      $("craftShowModalTitle").textContent = show ? "Edit Craft Show" : "Add Craft Show";
-      $("craftShowName").value = show?.name || "";
-      $("craftShowDate").value = show?.date || "";
-      $("craftShowLocation").value = show?.location || "";
-      $("craftShowFee").value = show?.fee ?? "";
-      $("craftShowNotes").value = show?.notes || "";
+    function openCraftShowModal(show=null){
+      editingCraftShowId=show?.id||null;
+      $("craftShowModalTitle").textContent=show?"Edit Craft Show":"Add Craft Show";
+      $("craftShowName").value=show?.name||"";
+      $("craftShowDate").value=show?.date||"";
+      $("craftShowLocation").value=show?.location||"";
+      $("craftShowFee").value=show?.fee??"";
+      $("craftShowNotes").value=show?.notes||"";
       $("craftShowModal").classList.remove("hidden");
     }
+    function closeCraftShowModal(){editingCraftShowId=null;$("craftShowModal").classList.add("hidden");}
 
-    function closeCraftShowModal() { editingCraftShowId=null; $("craftShowModal").classList.add("hidden"); }
-
-    async function saveCraftShow() {
+    async function saveCraftShow(){
       const name=$("craftShowName").value.trim();
-      if(!name) return alert("Enter a craft show name.");
+      if(!name)return alert("Enter a craft show name.");
       const data={name,date:$("craftShowDate").value,location:$("craftShowLocation").value.trim(),fee:Math.max(0,Number($("craftShowFee").value||0)),notes:$("craftShowNotes").value.trim(),status:"Open",updatedAt:serverTimestamp()};
-      try {
-        if(editingCraftShowId) await updateDoc(doc(db,"craftShows",editingCraftShowId),data);
-        else { const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`; await setDoc(doc(db,"craftShows",id),{...data,createdAt:serverTimestamp(),loadedItems:{}}); }
+      try{
+        if(editingCraftShowId){await updateDoc(doc(db,"craftShows",editingCraftShowId),data);}
+        else{const id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`;await setDoc(doc(db,"craftShows",id),{...data,createdAt:serverTimestamp(),loadedItems:{},salesTotal:0,otherExpenses:0,returnedItems:{}});}
         closeCraftShowModal();
-      } catch(e){setCraftShowStatus(e.message||"Could not save craft show.",true);}
+      }catch(e){setCraftShowStatus(e.message||"Could not save craft show.",true);}
     }
 
     function loadCraftShows(){
-      if(unsubscribeCraftShows) unsubscribeCraftShows();
+      if(unsubscribeCraftShows)unsubscribeCraftShows();
       unsubscribeCraftShows=onSnapshot(collection(db,"craftShows"),snap=>{
         craftShowsCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
-        $("craftShowsCount").textContent=craftShowsCache.filter(x=>x.status!=="Closed").length; renderCraftShows(craftShowsCache);
+        $("craftShowsCount").textContent=craftShowsCache.filter(x=>x.status!=="Closed").length;
+        renderCraftShows(craftShowsCache);
       },e=>setCraftShowStatus(e.message||"Could not load craft shows.",true));
     }
 
+    function showLoadedCount(show){return Object.values(show.loadedItems||{}).reduce((s,n)=>s+Number(n||0),0);}
+
     function renderCraftShows(items){
-      const list=$("craftShowsList"); list.innerHTML="";
+      const list=$("craftShowsList");list.innerHTML="";
       if(!items.length){list.innerHTML='<div class="small">No craft shows yet.</div>';return;}
       items.forEach(show=>{
-        const row=document.createElement("div"); row.className="job";
-        const loaded=show.loadedItems||{}; const loadedCount=Object.values(loaded).reduce((s,n)=>s+Number(n||0),0);
+        const row=document.createElement("div");row.className="job";
+        const loaded=showLoadedCount(show);
         row.innerHTML='<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div></div><div class="printer-actions"></div></div>';
         row.querySelector('.job-name').textContent=show.name;
         row.querySelectorAll('.job-meta')[0].textContent=`${show.date||"No date"} • ${show.location||"No location"}`;
-        row.querySelectorAll('.job-meta')[1].textContent=`Status: ${show.status||"Open"} • Loaded items: ${loadedCount} • Event fee: $${Number(show.fee||0).toFixed(2)}`;
+        row.querySelectorAll('.job-meta')[1].textContent=`Status: ${show.status||"Open"} • Loaded: ${loaded} • Sales: $${Number(show.salesTotal||0).toFixed(2)} • Fee: $${Number(show.fee||0).toFixed(2)}`;
         const a=row.querySelector('.printer-actions');
-        const load=document.createElement('button'); load.textContent='Load Stock'; load.className='secondary'; load.onclick=()=>loadStockToShow(show);
-        const edit=document.createElement('button'); edit.textContent='Edit'; edit.className='secondary'; edit.onclick=()=>openCraftShowModal(show);
-        const close=document.createElement('button'); close.textContent=show.status==='Closed'?'Reopen':'Close'; close.className='secondary'; close.onclick=()=>toggleCraftShow(show);
-        a.append(load,edit,close); list.appendChild(row);
+        const view=document.createElement('button');view.textContent='Open Show';view.className='secondary';view.onclick=()=>openCraftShowDetail(show);
+        const edit=document.createElement('button');edit.textContent='Edit';edit.className='secondary';edit.onclick=()=>openCraftShowModal(show);
+        const toggle=document.createElement('button');toggle.textContent=show.status==='Closed'?'Reopen':'Close Show';toggle.className=show.status==='Closed'?'secondary':'danger';toggle.onclick=()=>toggleCraftShow(show);
+        a.append(view,edit,toggle);list.appendChild(row);
       });
     }
 
+    function openCraftShowDetail(show){
+      const detail=$("craftShowDetail");detail.classList.remove("hidden");
+      const loaded=show.loadedItems||{};
+      const rows=Object.entries(loaded).map(([id,qty])=>{
+        const item=stockCache.find(x=>x.id===id); if(!item)return '';
+        const cost=Number(item.unitCost||0),price=Number(item.sellingPrice||0);
+        return `<div class="list-item"><div><strong>${escapeHtml(item.name||'Unnamed')}</strong><div class="small">${escapeHtml(item.sku||'')} • Loaded ${Number(qty||0)} • $${price.toFixed(2)} each</div></div><div class="row"><button class="secondary" data-return="${id}">Return</button></div></div>`;
+      }).join('');
+      const revenue=Number(show.salesTotal||0), fee=Number(show.fee||0), expenses=Number(show.otherExpenses||0);
+      const salesCost=Number(show.salesCost||0);
+      const profit=revenue-salesCost-fee-expenses;
+      detail.innerHTML=`<div class="topbar"><h3 style="margin:0;">${escapeHtml(show.name)}</h3><button id="closeShowDetail" class="secondary">Close</button></div>
+        <div class="job-meta">${escapeHtml(show.date||'No date')} • ${escapeHtml(show.location||'No location')} • ${show.status||'Open'}</div>
+        <div class="row" style="margin-top:12px;flex-wrap:wrap;">
+          <div class="tile"><strong>$${revenue.toFixed(2)}</strong><span class="small">Sales</span></div>
+          <div class="tile"><strong>$${fee.toFixed(2)}</strong><span class="small">Event Fee</span></div>
+          <div class="tile"><strong>$${expenses.toFixed(2)}</strong><span class="small">Other Expenses</span></div>
+          <div class="tile"><strong>$${profit.toFixed(2)}</strong><span class="small">Est. Net</span></div>
+        </div>
+        <div class="row" style="margin-top:12px;"><button id="loadStockDetailBtn" class="secondary">+ Load Stock</button><button id="expenseShowBtn" class="secondary">Add Expense</button><button id="recordShowSaleBtn" class="secondary">Record Sale</button></div>
+        <h4>Inventory Loaded</h4><div>${rows||'<div class="small">No stock loaded yet.</div>'}</div>
+        <div class="small" style="margin-top:10px;">Production cost is based on the cost of items actually recorded as sold.</div>`;
+      $("closeShowDetail").onclick=()=>detail.classList.add("hidden");
+      $("loadStockDetailBtn").onclick=()=>loadStockToShow(show);
+      $("expenseShowBtn").onclick=()=>addShowExpense(show);
+      $("recordShowSaleBtn").onclick=()=>recordShowSale(show);
+      detail.querySelectorAll('[data-return]').forEach(btn=>btn.onclick=()=>returnStockFromShow(show,btn.dataset.return));
+    }
+
+    function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
     async function loadStockToShow(show){
-      if(!stockCache.length) await loadStock();
-      const name=prompt("Enter the SKU or barcode to load:"); if(!name) return;
-      const item=findStockByCode(name) || stockCache.find(x=>x.name?.toLowerCase()===name.toLowerCase());
-      if(!item) return alert("Stock print not found.");
+      if(show.status==='Closed')return alert("This show is closed. Reopen it before loading stock.");
+      if(!stockCache.length)loadStock();
+      const code=prompt("Enter the SKU or barcode to load:");if(!code)return;
+      const item=findStockByCode(code)||stockCache.find(x=>String(x.name||'').toLowerCase()===code.toLowerCase());
+      if(!item)return alert("Stock print not found.");
       const qty=Math.max(1,Math.floor(Number(prompt(`How many ${item.name} are you loading?`,"1")||0)));
-      const available=Math.max(0,Number(item.quantityOnHand||0)-Number(item.craftShowQty||0));
-      if(qty>available) return alert(`Only ${available} available.`);
+      if(!qty)return;
       try{
         await runTransaction(db,async tx=>{
-          const stockRef=doc(db,"stockPrints",item.id); const showRef=doc(db,"craftShows",show.id);
-          const ss=await tx.get(stockRef), es=await tx.get(showRef); if(!ss.exists()||!es.exists()) throw new Error("Item or show no longer exists.");
-          const sd=ss.data(), ed=es.data(); const avail=Math.max(0,Number(sd.quantityOnHand||0)-Number(sd.craftShowQty||0)); if(qty>avail) throw new Error(`Only ${avail} available.`);
-          const loaded={...(ed.loadedItems||{})}; loaded[item.id]=Number(loaded[item.id]||0)+qty;
-          tx.update(stockRef,{craftShowQty:Number(sd.craftShowQty||0)+qty,updatedAt:serverTimestamp()}); tx.update(showRef,{loadedItems:loaded,updatedAt:serverTimestamp()});
+          const stockRef=doc(db,"stockPrints",item.id),showRef=doc(db,"craftShows",show.id);
+          const ss=await tx.get(stockRef),es=await tx.get(showRef);if(!ss.exists()||!es.exists())throw new Error("Item or show no longer exists.");
+          const sd=ss.data(),ed=es.data();
+          // Allow existing unassigned craftShowQty to be claimed first.
+          const assignedElsewhere=Number(sd.assignedCraftShowQty||0);
+          const markedAtShow=Math.max(0,Number(sd.craftShowQty||0)-assignedElsewhere);
+          const availableUnassigned=markedAtShow;
+          const onHand=Number(sd.quantityOnHand||0);
+          const totalAvailable=Math.max(0,onHand-Number(sd.assignedCraftShowQty||0));
+          if(qty>Math.max(availableUnassigned,totalAvailable))throw new Error(`Only ${Math.max(availableUnassigned,totalAvailable)} available.`);
+          const loaded={...(ed.loadedItems||{})};loaded[item.id]=Number(loaded[item.id]||0)+qty;
+          const useMarked=Math.min(qty,availableUnassigned), addNew=qty-useMarked;
+          tx.update(stockRef,{craftShowQty:Number(sd.craftShowQty||0)+addNew,assignedCraftShowQty:Number(sd.assignedCraftShowQty||0)+qty,updatedAt:serverTimestamp()});
+          tx.update(showRef,{loadedItems:loaded,updatedAt:serverTimestamp()});
         });
+        setCraftShowStatus(`${item.name}: loaded ${qty}.`);openCraftShowDetail(craftShowsCache.find(x=>x.id===show.id)||show);
       }catch(e){alert(e.message||"Could not load stock.");}
     }
 
-    async function toggleCraftShow(show){ try{await updateDoc(doc(db,"craftShows",show.id),{status:show.status==='Closed'?'Open':'Closed',updatedAt:serverTimestamp()});}catch(e){setCraftShowStatus(e.message||"Could not update show.",true);} }
+    async function returnStockFromShow(show,itemId){
+      const loaded=Number((show.loadedItems||{})[itemId]||0);if(!loaded)return;
+      const qty=Math.max(1,Math.floor(Number(prompt(`How many to return? (Loaded: ${loaded})`,String(loaded))||0)));
+      if(!qty||qty>loaded)return alert(`Enter a number from 1 to ${loaded}.`);
+      try{
+        await runTransaction(db,async tx=>{
+          const stockRef=doc(db,"stockPrints",itemId),showRef=doc(db,"craftShows",show.id);
+          const ss=await tx.get(stockRef),es=await tx.get(showRef);if(!ss.exists()||!es.exists())throw new Error("Item or show no longer exists.");
+          const sd=ss.data(),ed=es.data(),li={...(ed.loadedItems||{})};
+          li[itemId]=Math.max(0,Number(li[itemId]||0)-qty);if(!li[itemId])delete li[itemId];
+          tx.update(stockRef,{craftShowQty:Math.max(0,Number(sd.craftShowQty||0)-qty),assignedCraftShowQty:Math.max(0,Number(sd.assignedCraftShowQty||0)-qty),updatedAt:serverTimestamp()});
+          tx.update(showRef,{loadedItems:li,returnedItems:{...(ed.returnedItems||{}),[itemId]:Number((ed.returnedItems||{})[itemId]||0)+qty},updatedAt:serverTimestamp()});
+        });
+        const fresh=craftShowsCache.find(x=>x.id===show.id)||show;openCraftShowDetail(fresh);
+      }catch(e){alert(e.message||"Could not return stock.");}
+    }
+
+    async function addShowExpense(show){
+      const amount=Math.max(0,Number(prompt("Other expense amount ($):","0")||0));if(!amount)return;
+      const note=prompt("Expense note (optional):","")||"";
+      try{await updateDoc(doc(db,"craftShows",show.id),{otherExpenses:Number(show.otherExpenses||0)+amount,expenseNotes:[...(show.expenseNotes||[]),{amount,note,createdAt:new Date().toISOString()}],updatedAt:serverTimestamp()});}catch(e){alert(e.message||"Could not add expense.");}
+    }
+
+    async function recordShowSale(show){
+      if(show.status==='Closed')return alert("This show is closed. Reopen it to record a sale.");
+      const code=prompt("Enter the SKU or barcode sold:");if(!code)return;
+      const item=findStockByCode(code)||stockCache.find(x=>String(x.name||'').toLowerCase()===code.toLowerCase());if(!item)return alert("Stock print not found.");
+      const loaded=Number((show.loadedItems||{})[item.id]||0);if(!loaded)return alert("That item is not loaded in this craft show.");
+      const qty=Math.max(1,Math.floor(Number(prompt(`How many ${item.name} sold? (Loaded: ${loaded})`,"1")||0)));if(!qty||qty>loaded)return alert(`Enter a number from 1 to ${loaded}.`);
+      const total=qty*Number(item.sellingPrice||0);
+      try{await runTransaction(db,async tx=>{const sr=doc(db,"stockPrints",item.id),er=doc(db,"craftShows",show.id);const ss=await tx.get(sr),es=await tx.get(er);if(!ss.exists()||!es.exists())throw new Error("Item or show no longer exists.");const sd=ss.data(),ed=es.data(),li={...(ed.loadedItems||{})};li[item.id]=Math.max(0,Number(li[item.id]||0)-qty);if(!li[item.id])delete li[item.id];tx.update(sr,{quantityOnHand:Math.max(0,Number(sd.quantityOnHand||0)-qty),craftShowQty:Math.max(0,Number(sd.craftShowQty||0)-qty),assignedCraftShowQty:Math.max(0,Number(sd.assignedCraftShowQty||0)-qty),updatedAt:serverTimestamp()});tx.update(er,{loadedItems:li,salesTotal:Number(ed.salesTotal||0)+total,salesCost:Number(ed.salesCost||0)+(qty*Number(item.unitCost||0)),updatedAt:serverTimestamp()});const saleRef=doc(collection(db,"sales"));tx.set(saleRef,{lines:[{stockId:item.id,name:item.name,sku:item.sku||"",barcode:item.barcode||"",qty,unitPrice:Number(item.sellingPrice||0),unitCost:Number(item.unitCost||0)}],total,paymentMethod:"Craft Show",eventName:show.name,createdAt:serverTimestamp(),userEmail:currentUser?.email||""});});setCraftShowStatus(`${item.name}: sale recorded for $${total.toFixed(2)}.`);}catch(e){alert(e.message||"Could not record sale.");}
+    }
+
+    async function toggleCraftShow(show){
+      if(show.status==='Closed'){
+        if(!confirm("Reopen this craft show?"))return;
+        try{await updateDoc(doc(db,"craftShows",show.id),{status:"Open",closedAt:null,updatedAt:serverTimestamp()});}catch(e){alert(e.message||"Could not reopen show.");}
+        return;
+      }
+      const remaining=showLoadedCount(show);
+      if(remaining>0&&!confirm(`${remaining} item(s) are still loaded. Close the show and return all remaining inventory?`))return;
+      try{
+        if(remaining>0){
+          await runTransaction(db,async tx=>{
+            const er=doc(db,"craftShows",show.id),es=await tx.get(er);if(!es.exists())throw new Error("Show no longer exists.");const ed=es.data();
+            for(const [itemId,qtyRaw] of Object.entries(ed.loadedItems||{})){
+              const qty=Number(qtyRaw||0);if(!qty)continue;const sr=doc(db,"stockPrints",itemId),ss=await tx.get(sr);if(ss.exists()){const sd=ss.data();tx.update(sr,{craftShowQty:Math.max(0,Number(sd.craftShowQty||0)-qty),assignedCraftShowQty:Math.max(0,Number(sd.assignedCraftShowQty||0)-qty),updatedAt:serverTimestamp()});}}
+            tx.update(er,{loadedItems:{},status:"Closed",closedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+          });
+        }else await updateDoc(doc(db,"craftShows",show.id),{status:"Closed",closedAt:serverTimestamp(),updatedAt:serverTimestamp()});
+      }catch(e){alert(e.message||"Could not close show.");}
+    }
 
     function setPosStatus(msg, error=false) {
       $("posStatus").textContent = msg;
