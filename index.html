@@ -383,9 +383,6 @@
       <input id="stockName" placeholder="Product / print name">
       <input id="stockSku" placeholder="SKU (optional)">
       <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
-      <label class="small" for="stockPhoto">Product photo (cloud upload disabled until Blaze)</label>
-      <input id="stockPhoto" type="file" accept="image/*" disabled title="Firebase Storage requires Blaze">
-      <div id="stockPhotoPreview" class="small" style="margin-top:8px;"></div>
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
         <div><label class="small" for="stockShowQty">At craft show</label><input id="stockShowQty" type="number" min="0" step="1" placeholder="0"></div>
@@ -468,7 +465,6 @@
       apiKey: "AIzaSyB8agDN8iMc06jfb17HypE0BZnfEQeLdG0",
       authDomain: "mkcc-prints-bb164.firebaseapp.com",
       projectId: "mkcc-prints-bb164",
-      storageBucket: "mkcc-prints-bb164.firebasestorage.app",
       messagingSenderId: "218476559416",
       appId: "1:218476559416:web:40a2dfe0c70fdced6cbacd",
       measurementId: "G-90KJYY77HK"
@@ -519,7 +515,6 @@
     let craftShowsCache = [];
     let unsubscribeCraftShows = null;
     let editingCraftShowId = null;
-    let selectedStockPhotoFile = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -584,7 +579,6 @@
     $("addCraftShowBtn").addEventListener("click", () => openCraftShowModal());
     $("cancelCraftShowBtn").addEventListener("click", closeCraftShowModal);
     $("saveCraftShowBtn").addEventListener("click", saveCraftShow);
-    $("stockPhoto").addEventListener("change", previewStockPhoto);
     $("stockTile").addEventListener("click", openStock);
     $("backStockDashboardBtn").addEventListener("click", () => { openManage(); });
     $("addStockBtn").addEventListener("click", () => openStockModal());
@@ -647,11 +641,9 @@
 
     function openStockModal(item=null) {
       editingStockId = item?.id || null;
-      selectedStockPhotoFile = null;
       $("stockModalTitle").textContent = item ? "Edit Stock Print" : "Add Stock Print";
       $("stockName").value = item?.name || "";
       $("stockSku").value = item?.sku || "";
-      $("stockBarcode").value = item?.barcode || "";
       $("stockQty").value = item?.quantityOnHand ?? "";
       $("stockShowQty").value = item?.craftShowQty ?? "";
       $("stockPrice").value = item?.sellingPrice ?? "";
@@ -683,7 +675,6 @@
         const profit = price - cost;
         row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
         row.querySelector(".job-name").textContent = `${item.name || "Unnamed stock print"}${item.sku ? ` — ${item.sku}` : ""}`;
-        if (item.photoURL) { const img=document.createElement("img"); img.src=item.photoURL; img.alt=item.name||"Stock print"; img.style="width:72px;height:72px;object-fit:cover;border-radius:10px;margin-top:8px;"; row.querySelector(".job-name").parentElement.prepend(img); }
         row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft show: ${showQty} • Available: ${available}`;
         row.querySelectorAll(".job-meta")[1].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
         row.querySelector(".cost").textContent = `Inventory value at cost: $${(qty * cost).toFixed(2)}`;
@@ -694,7 +685,7 @@
         show.onclick = () => moveToShow(item, 1);
         const sold = document.createElement("button"); sold.textContent = "Sell 1"; sold.className="secondary";
         sold.onclick = () => sellStock(item, 1);
-        const label = document.createElement("button"); label.textContent="🏷️ Label"; label.className="secondary"; label.onclick=()=>printStockLabels(item);
+        const label = document.createElement("button"); label.textContent = "🏷️ Label"; label.className="secondary"; label.onclick = () => printStockLabels(item);
         const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openStockModal(item);
         const del = document.createElement("button"); del.textContent="Delete"; del.className="danger"; del.onclick=async()=>{if(!confirm("Delete this stock print?"))return;try{await deleteDoc(doc(db,"stockPrints",item.id));}catch(e){setStockStatus(e.message,true);}};
         actions.append(add, show, sold, label, edit, del);
@@ -716,12 +707,11 @@
       try {
         let id = editingStockId;
         if (!id) id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`;
-        const photoURL = stockCache.find(x=>x.id===id)?.photoURL || "";
-        const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, photoURL, updatedAt: serverTimestamp()};
+        const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
         else await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()});
         closeStockModal();
-      } catch(e) { console.error(e); alert(e.message || "Could not save stock print or upload photo."); }
+      } catch(e) { console.error(e); alert(e.message || "Could not save stock print."); }
     }
 
     async function changeStockQty(item, delta, field="quantityOnHand") {
@@ -749,71 +739,38 @@
       catch(e){ setStockStatus(e.message || "Could not record sale.", true); }
     }
 
-
-    let barcodeLibPromise = null;
-    let qrLibPromise = null;
-
-    function loadExternalScript(src, globalName) {
+    function loadExternalScript(src) {
       return new Promise((resolve, reject) => {
-        if (window[globalName]) return resolve(window[globalName]);
-        const existing = document.querySelector(`script[data-mkcc-lib="${globalName}"]`);
-        if (existing) {
-          existing.addEventListener("load", () => resolve(window[globalName]), {once:true});
-          existing.addEventListener("error", () => reject(new Error(`Could not load ${globalName}.`)), {once:true});
-          return;
-        }
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) { existing.dataset.loaded === "true" ? resolve() : existing.addEventListener("load", resolve, {once:true}); existing.addEventListener("error", () => reject(new Error("Could not load label library.")), {once:true}); return; }
         const script = document.createElement("script");
         script.src = src;
-        script.async = true;
-        script.dataset.mkccLib = globalName;
-        script.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(`${globalName} loaded but was not available.`));
-        script.onerror = () => reject(new Error(`Could not load ${globalName}. Check your internet connection and try again.`));
+        script.onload = () => { script.dataset.loaded = "true"; resolve(); };
+        script.onerror = () => reject(new Error("Could not load label library. Check your internet connection and try again."));
         document.head.appendChild(script);
       });
     }
 
-    function loadBarcodeLib() {
-      if (!barcodeLibPromise) barcodeLibPromise = loadExternalScript("https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js", "JsBarcode");
-      return barcodeLibPromise;
-    }
-
-    function loadQrLib() {
-      if (!qrLibPromise) qrLibPromise = loadExternalScript("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js", "QRCode");
-      return qrLibPromise;
-    }
-
     async function printStockLabels(item) {
       const code = String(item.barcode || item.sku || "").trim();
-      if (!code) return alert("This stock print needs a SKU or barcode before a label can be made.");
-      const qty = Math.max(1, Math.min(100, Math.floor(Number(prompt("How many labels?", "1") || 0))));
-      if (!qty) return;
+      if (!code) return alert("Add a barcode or SKU to this stock print before printing labels.");
       try {
-        await Promise.all([loadBarcodeLib(), loadQrLib()]);
-        const svg = document.createElement("svg");
-        JsBarcode(svg, code, {format:"CODE128", displayValue:true, fontSize:16, margin:4, width:2, height:54});
-        const barcodeSvg = new XMLSerializer().serializeToString(svg);
-        const qrDataUrl = await QRCode.toDataURL(code, {width:180, margin:1, errorCorrectionLevel:"M"});
+        await loadExternalScript("https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js");
+        await loadExternalScript("https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js");
+        const qtyRaw = prompt("How many labels?", "1");
+        if (qtyRaw === null) return;
+        const qty = Math.max(1, Math.min(100, Math.floor(Number(qtyRaw) || 0)));
         const title = escapeHtml(item.name || "MKCC Print");
         const sku = escapeHtml(item.sku || code);
         const price = Number(item.sellingPrice || 0).toFixed(2);
-        const labels = Array.from({length:qty}, () => `<div class="label"><div class="brand">MKCC Prints</div><div class="name">${title}</div><div class="price">$${price}</div><div class="codes"><div class="barcode">${barcodeSvg}</div><img class="qr" src="${qrDataUrl}" alt="QR code"></div><div class="sku">SKU: ${sku}</div></div>`).join("");
+        const labels = Array.from({length: qty}, (_, i) => `<div class="label"><div class="brand">MKCC Prints</div><div class="name">${title}</div><div class="price">$${price}</div><svg id="bar-${i}" class="barcode"></svg><div id="qr-${i}" class="qr"></div><div class="sku">SKU: ${sku}</div></div>`).join("");
         const w = window.open("", "_blank", "noopener,noreferrer");
         if (!w) return alert("Your browser blocked the label window. Allow pop-ups for your MKCC Prints site and try again.");
-        w.document.write(`<!doctype html><html><head><title>MKCC Prints Labels</title><style>body{font-family:Arial,sans-serif;margin:12px}.sheet{display:flex;flex-wrap:wrap;gap:10px}.label{width:3.25in;min-height:2.1in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;text-align:center}.brand{font-weight:800;font-size:12px;letter-spacing:.08em}.name{font-weight:700;font-size:18px;margin:4px 0}.price{font-size:22px;font-weight:800;margin-bottom:4px}.codes{display:flex;align-items:center;justify-content:center;gap:8px}.barcode{width:2.2in}.barcode svg{max-width:100%;height:auto}.qr{width:72px;height:72px}.sku{font-size:11px;margin-top:3px}@media print{body{margin:0}.label{border:1px solid #222}}@page{margin:.25in}</style></head><body><div class="sheet">${labels}</div><script>window.onload=()=>setTimeout(()=>window.print(),300);</script></body></html>`);
+        w.document.write(`<!doctype html><html><head><title>MKCC Prints Labels</title><style>body{font-family:Arial,sans-serif;margin:12px}.sheet{display:flex;flex-wrap:wrap;gap:10px}.label{width:3.25in;min-height:2.2in;border:1px solid #222;border-radius:8px;padding:10px;box-sizing:border-box;break-inside:avoid;text-align:center}.brand{font-weight:800;font-size:12px;letter-spacing:.08em}.name{font-weight:700;font-size:18px;margin:4px 0}.price{font-size:22px;font-weight:800;margin-bottom:5px}.barcode{width:2.35in;height:.7in}.qr{width:80px;height:80px;margin:4px auto}.sku{font-size:11px;margin-top:3px}@media print{body{margin:0}.label{border:1px solid #222}}@page{margin:.25in}</style></head><body><div class="sheet">${labels}</div><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script><script>window.onload=()=>{document.querySelectorAll("svg.barcode").forEach(el=>JsBarcode(el,"${code.replace(/\/g,'\\').replace(/"/g,'\"')}",{format:"CODE128",displayValue:true,fontSize:12,margin:2,width:2,height:42}));document.querySelectorAll(".qr").forEach(el=>new QRCode(el,{text:"${code.replace(/\/g,'\\').replace(/"/g,'\"')}",width:80,height:80,correctLevel:QRCode.CorrectLevel.M}));setTimeout(()=>window.print(),400);};<\/script></body></html>`);
         w.document.close();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || "Could not generate the label.");
-      }
+      } catch (e) { console.error(e); alert(e.message || "Could not generate labels."); }
     }
 
-
-    function previewStockPhoto() {
-      selectedStockPhotoFile = $("stockPhoto").files?.[0] || null;
-      if (!selectedStockPhotoFile) return;
-      const url = URL.createObjectURL(selectedStockPhotoFile);
-      $("stockPhotoPreview").innerHTML = `<img src="${url}" style="max-width:140px;max-height:140px;border-radius:12px;display:block;margin-top:6px;">`;
-    }
 
     function setCraftShowStatus(msg, error=false) {
       $("craftShowStatus").textContent = msg;
