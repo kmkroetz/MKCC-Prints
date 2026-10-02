@@ -385,8 +385,8 @@
       <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
-        <div><label class="small" for="stockShowQty">At craft show</label><input id="stockShowQty" type="number" min="0" step="1" placeholder="0"></div>
       </div>
+      <div class="small">Craft-show inventory is assigned from the specific Craft Show. This keeps every unit tied to an actual event.</div>
       <div class="row">
         <div><label class="small" for="stockPrice">Selling price ($)</label><input id="stockPrice" type="number" min="0" step="0.01" placeholder="0.00"></div>
         <div><label class="small" for="stockUnitCost">Production cost each ($)</label><input id="stockUnitCost" type="number" min="0" step="0.01" placeholder="0.00"></div>
@@ -645,7 +645,6 @@
       $("stockName").value = item?.name || "";
       $("stockSku").value = item?.sku || "";
       $("stockQty").value = item?.quantityOnHand ?? "";
-      $("stockShowQty").value = item?.craftShowQty ?? "";
       $("stockPrice").value = item?.sellingPrice ?? "";
       $("stockUnitCost").value = item?.unitCost ?? "";
       $("stockNotes").value = item?.notes || "";
@@ -675,14 +674,17 @@
         const profit = price - cost;
         row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
         row.querySelector(".job-name").textContent = `${item.name || "Unnamed stock print"}${item.sku ? ` — ${item.sku}` : ""}`;
-        row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft show: ${showQty} • Available: ${available}`;
-        row.querySelectorAll(".job-meta")[1].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
+        const assigned = Number(item.assignedCraftShowQty || 0);
+        const unassigned = Math.max(0, showQty - assigned);
+        row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft shows: ${showQty} • Available: ${available}`;
+        row.querySelectorAll(".job-meta")[1].textContent = `Assigned to shows: ${assigned} • Unassigned craft-show stock: ${unassigned}`;
+        row.querySelectorAll(".job-meta")[2].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
         row.querySelector(".cost").textContent = `Inventory value at cost: $${(qty * cost).toFixed(2)}`;
         const actions = row.querySelector(".printer-actions");
         const add = document.createElement("button"); add.textContent = "+1 Stock"; add.className="secondary";
         add.onclick = () => changeStockQty(item, 1, "quantityOnHand");
-        const show = document.createElement("button"); show.textContent = "Send to Show"; show.className="secondary";
-        show.onclick = () => moveToShow(item, 1);
+        const show = document.createElement("button"); show.textContent = "Assign to Show"; show.className="secondary";
+        show.onclick = () => assignToShow(item);
         const sold = document.createElement("button"); sold.textContent = "Sell 1"; sold.className="secondary";
         sold.onclick = () => sellStock(item, 1);
         const label = document.createElement("button"); label.textContent = "🏷️ Label"; label.className="secondary"; label.onclick = () => printStockLabels(item);
@@ -698,16 +700,18 @@
       const sku = $("stockSku").value.trim();
       const barcode = $("stockBarcode").value.trim();
       const quantityOnHand = Math.max(0, Math.floor(Number($("stockQty").value || 0)));
-      const craftShowQty = Math.max(0, Math.floor(Number($("stockShowQty").value || 0)));
       const sellingPrice = Math.max(0, Number($("stockPrice").value || 0));
       const unitCost = Math.max(0, Number($("stockUnitCost").value || 0));
       const notes = $("stockNotes").value.trim();
       if (!name) return alert("Enter a product or print name.");
-      if (craftShowQty > quantityOnHand) return alert("Craft show quantity cannot be greater than quantity on hand.");
       try {
         let id = editingStockId;
         if (!id) id=`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`;
-        const data = {name, sku, barcode, quantityOnHand, craftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
+        const existing = editingStockId ? stockCache.find(x=>x.id===editingStockId) : null;
+        const craftShowQty = Number(existing?.craftShowQty || 0);
+        const assignedCraftShowQty = Number(existing?.assignedCraftShowQty || 0);
+        if (craftShowQty > quantityOnHand) return alert("Quantity on hand cannot be lower than inventory currently assigned or held for craft shows.");
+        const data = {name, sku, barcode, quantityOnHand, craftShowQty, assignedCraftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
         else await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()});
         closeStockModal();
@@ -722,13 +726,41 @@
       catch(e){ setStockStatus(e.message || "Could not update stock.", true); }
     }
 
-    async function moveToShow(item, qty) {
-      const onHand = Number(item.quantityOnHand || 0);
-      const atShow = Number(item.craftShowQty || 0);
-      const available = onHand - atShow;
-      if (qty > available) return alert(`Only ${available} available to send to a craft show.`);
-      try { await updateDoc(doc(db,"stockPrints",item.id), {craftShowQty:atShow+qty, updatedAt:serverTimestamp()}); }
-      catch(e){ setStockStatus(e.message || "Could not move stock.", true); }
+    async function assignToShow(item) {
+      const openShows = craftShowsCache.filter(s=>s.status!=="Closed");
+      if (!openShows.length) return alert("Create an open Craft Show first.");
+      const options = openShows.map((s,i)=>`${i+1}. ${s.name||"Unnamed Show"}${s.date?` — ${s.date}`:""}`).join("\n");
+      const choiceRaw = prompt(`Assign ${item.name||"this item"} to which Craft Show?\n\n${options}\n\nEnter the show number:`);
+      if (choiceRaw===null) return;
+      const index = Number(choiceRaw)-1;
+      const show = openShows[index];
+      if (!show) return alert("Invalid Craft Show selection.");
+      const unassigned = Math.max(0, Number(item.craftShowQty||0) - Number(item.assignedCraftShowQty||0));
+      const available = Math.max(0, Number(item.quantityOnHand||0) - Number(item.craftShowQty||0));
+      const max = unassigned + available;
+      const qtyRaw = prompt(`How many ${item.name||"items"} should be assigned to ${show.name}?\nAvailable to assign: ${max}`, String(Math.min(1,max)));
+      if (qtyRaw===null) return;
+      const qty = Math.floor(Number(qtyRaw));
+      if (!Number.isFinite(qty) || qty < 1 || qty > max) return alert(`Enter a quantity from 1 to ${max}.`);
+      try {
+        await runTransaction(db, async tx => {
+          const stockRef=doc(db,"stockPrints",item.id), showRef=doc(db,"craftShows",show.id);
+          const ss=await tx.get(stockRef), es=await tx.get(showRef);
+          if(!ss.exists()||!es.exists()) throw new Error("Item or show no longer exists.");
+          const sd=ss.data(), ed=es.data();
+          if(ed.status==="Closed") throw new Error("This Craft Show is closed.");
+          const currentShowQty=Number(sd.craftShowQty||0), currentAssigned=Number(sd.assignedCraftShowQty||0);
+          const unassignedNow=Math.max(0,currentShowQty-currentAssigned);
+          const availableNow=Math.max(0,Number(sd.quantityOnHand||0)-currentShowQty);
+          if(qty>unassignedNow+availableNow) throw new Error(`Only ${unassignedNow+availableNow} available to assign.`);
+          const li={...(ed.loadedItems||{})};
+          li[item.id]=Number(li[item.id]||0)+qty;
+          const useUnassigned=Math.min(qty,unassignedNow), addNew=qty-useUnassigned;
+          tx.update(stockRef,{craftShowQty:currentShowQty+addNew,assignedCraftShowQty:currentAssigned+qty,updatedAt:serverTimestamp()});
+          tx.update(showRef,{loadedItems:li,updatedAt:serverTimestamp()});
+        });
+        setStockStatus(`${item.name}: assigned ${qty} to ${show.name}.`);
+      } catch(e) { setStockStatus(e.message||"Could not assign stock to the Craft Show.",true); }
     }
 
     async function sellStock(item, qty) {
