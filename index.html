@@ -644,6 +644,7 @@
       $("stockModalTitle").textContent = item ? "Edit Stock Print" : "Add Stock Print";
       $("stockName").value = item?.name || "";
       $("stockSku").value = item?.sku || "";
+      $("stockBarcode").value = item?.barcode || "";
       $("stockQty").value = item?.quantityOnHand ?? "";
       $("stockPrice").value = item?.sellingPrice ?? "";
       $("stockUnitCost").value = item?.unitCost ?? "";
@@ -672,7 +673,7 @@
         const price = Number(item.sellingPrice || 0);
         const cost = Number(item.unitCost || 0);
         const profit = price - cost;
-        row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
+        row.innerHTML = '<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div><div class="job-meta"></div><div class="cost"></div></div><div class="printer-actions"></div></div>';
         row.querySelector(".job-name").textContent = `${item.name || "Unnamed stock print"}${item.sku ? ` — ${item.sku}` : ""}`;
         const assigned = Number(item.assignedCraftShowQty || 0);
         const unassigned = Math.max(0, showQty - assigned);
