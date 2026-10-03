@@ -3,43 +3,47 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#111111">
+  <meta name="theme-color" content="#ba0c2f">
   <link rel="manifest" href="./manifest.json">
   <title>MKCC Prints</title>
   <style>
     :root { font-family: Arial, sans-serif; color-scheme: dark; }
     * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; background:#111; color:#fff; }
+    body { margin:0; min-height:100vh; background:#1b1b1b; color:#fff; }
+    h1,h2,h3 { color:#fff; }
+    .accent, .brand-accent { color:#ba0c2f; }
+    a { color:#c5c5c5; }
+    button:hover { filter:brightness(1.08); }
     .wrap { max-width:720px; margin:auto; padding:20px; }
-    .card { background:#1d1d1d; border:1px solid #333; border-radius:16px; padding:20px; margin-top:16px; }
+    .card { background:#242424; border:1px solid #666; border-radius:16px; padding:20px; margin-top:16px; }
     h1 { margin:0 0 8px; font-size:30px; }
     h2 { margin:0 0 12px; }
-    p { color:#bbb; }
-    input, select, button { width:100%; padding:13px; margin-top:10px; border-radius:10px; border:1px solid #444; font-size:16px; }
-    input, select { background:#101010; color:#fff; }
-    button { background:#fff; color:#111; font-weight:700; cursor:pointer; }
-    button.secondary { background:#292929; color:#fff; }
-    button.danger { background:#5b2020; color:#fff; }
+    p { color:#c7c7c7; }
+    input, select, button { width:100%; padding:13px; margin-top:10px; border-radius:10px; border:1px solid #6b6b6b; font-size:16px; }
+    input, select { background:#202020; color:#fff; }
+    button { background:#ba0c2f; color:#fff; font-weight:700; cursor:pointer; border-color:#ba0c2f; }
+    button.secondary { background:#666; color:#fff; border-color:#777; }
+    button.danger { background:#7a1028; color:#fff; border-color:#7a1028; }
     .hidden { display:none !important; }
-    .status { margin-top:14px; min-height:22px; color:#ffcc66; line-height:1.4; }
+    .status { margin-top:14px; min-height:22px; color:#c5c5c5; line-height:1.4; }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:20px; }
-    .tile { padding:18px; background:#242424; border-radius:14px; border:1px solid #333; cursor:pointer; }
+    .tile { padding:18px; background:#2a2a2a; border-radius:14px; border:1px solid #666; cursor:pointer; }
     .tile strong { display:block; font-size:26px; margin-bottom:5px; }
-    .small { font-size:13px; color:#999; }
+    .small { font-size:13px; color:#bdbdbd; }
     .topbar { display:flex; gap:10px; align-items:center; justify-content:space-between; }
     .topbar button { width:auto; margin-top:0; padding:10px 14px; }
-    .printer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-bottom:1px solid #333; }
+    .printer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-bottom:1px solid #666; }
     .printer:last-child { border-bottom:0; }
     .printer-name { font-weight:700; }
-    .printer-model { color:#aaa; font-size:13px; margin-top:4px; }
+    .printer-model { color:#c0c0c0; font-size:13px; margin-top:4px; }
     .printer-actions { display:flex; gap:8px; }
 
-    .job { padding:14px 0; border-bottom:1px solid #333; }
+    .job { padding:14px 0; border-bottom:1px solid #666; }
     .job:last-child { border-bottom:0; }
     .job-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
     .job-name { font-weight:700; font-size:16px; }
-    .job-meta { color:#aaa; font-size:13px; line-height:1.5; margin-top:4px; }
-    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#292929; font-size:12px; }
+    .job-meta { color:#c0c0c0; font-size:13px; line-height:1.5; margin-top:4px; }
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#666; font-size:12px; }
     .cost { margin-top:6px; font-weight:700; }
     .row { display:flex; gap:10px; }
     .home-actions { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px; }
@@ -49,7 +53,7 @@
     @media (max-width:560px){ .job-head{flex-direction:column;} .row{flex-direction:column;} }
     .printer-actions button { width:auto; margin-top:0; padding:8px 10px; font-size:13px; }
     .modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; padding:20px; z-index:10; }
-    .modal-card { width:min(520px,100%); background:#1d1d1d; border:1px solid #444; border-radius:16px; padding:20px; }
+    .modal-card { width:min(520px,100%); background:#1d1d1d; border:1px solid #6b6b6b; border-radius:16px; padding:20px; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     @media (max-width:520px) { .grid,.row { grid-template-columns:1fr; } .printer { align-items:flex-start; } }
   </style>
