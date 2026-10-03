@@ -100,6 +100,7 @@
             <div class="tile" id="stockTile"><strong id="stockCount">0</strong><span class="small">Stock Prints</span></div>
             <div class="tile" id="craftShowsTile"><strong id="craftShowsCount">0</strong><span class="small">Craft Shows</span></div>
             <div class="tile" id="posTile"><strong id="posTodayCount">0</strong><span class="small">POS Sales Today</span></div>
+            <div class="tile" id="moneyTile"><strong id="moneyToday">$0.00</strong><span class="small">Sales Today</span></div>
           </div>
           <button id="printersBtn" class="secondary">Manage Printers</button>
           <button id="filamentBtn" class="secondary">Manage Filament</button>
@@ -109,6 +110,34 @@
           <button id="stockBtn" class="secondary">Manage Stock Prints</button>
           <button id="craftShowsBtn" class="secondary">Manage Craft Shows</button>
           <button id="posBtn" class="secondary">Open Point of Sale</button>
+          <button id="moneyBtn" class="secondary">💰 Money & Reports</button>
+        </div>
+
+        <div id="moneyView" class="hidden">
+          <div class="topbar">
+            <h2>💰 Money & Reports</h2>
+            <button id="backMoneyDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Financial totals calculated from recorded POS sales, print jobs, and craft-show expenses.</p>
+          <div class="row" style="flex-wrap:wrap;align-items:end;">
+            <div><label class="small" for="moneyRange">Date Range</label><select id="moneyRange"><option value="today">Today</option><option value="week">This Week</option><option value="month" selected>This Month</option><option value="year">This Year</option><option value="all">All Time</option><option value="custom">Custom</option></select></div>
+            <div id="moneyCustomWrap" class="hidden"><label class="small" for="moneyStart">Start</label><input id="moneyStart" type="date"></div>
+            <div id="moneyCustomEndWrap" class="hidden"><label class="small" for="moneyEnd">End</label><input id="moneyEnd" type="date"></div>
+            <button id="moneyRefreshBtn" class="secondary">Refresh</button>
+          </div>
+          <div class="grid" style="margin-top:14px;">
+            <div class="tile"><strong id="moneyRevenue">$0.00</strong><span class="small">Sales Revenue</span></div>
+            <div class="tile"><strong id="moneyCogs">$0.00</strong><span class="small">Cost of Items Sold</span></div>
+            <div class="tile"><strong id="moneyGross">$0.00</strong><span class="small">Gross Profit</span></div>
+            <div class="tile"><strong id="moneyMaterial">$0.00</strong><span class="small">Print Job Materials</span></div>
+            <div class="tile"><strong id="moneyLabor">$0.00</strong><span class="small">Print Job Labor</span></div>
+            <div class="tile"><strong id="moneyEvents">$0.00</strong><span class="small">Craft Show Expenses</span></div>
+            <div class="tile"><strong id="moneyNet">$0.00</strong><span class="small">Revenue − Recorded Costs</span></div>
+          </div>
+          <div class="card" style="margin-top:14px;"><h3>Sales by Product</h3><div id="moneyProducts"></div></div>
+          <div class="card" style="margin-top:14px;"><h3>Sales by Craft Show</h3><div id="moneyShows"></div></div>
+          <div class="card" style="margin-top:14px;"><h3>Notes</h3><div class="small">Cost of Items Sold comes from each sale's recorded unit cost. Print Job Materials/Labor are production costs recorded separately in Print Jobs, so they are shown separately rather than automatically double-counted in net profit.</div></div>
+          <div id="moneyStatus" class="status"></div>
         </div>
 
         <div id="filamentView" class="hidden">
@@ -515,6 +544,12 @@
     let craftShowsCache = [];
     let unsubscribeCraftShows = null;
     let editingCraftShowId = null;
+    let moneySalesCache = [];
+    let moneyJobsCache = [];
+    let moneyShowsCache = [];
+    let unsubscribeMoneySales = null;
+    let unsubscribeMoneyJobs = null;
+    let unsubscribeMoneyShows = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -617,7 +652,7 @@
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["homeView","dashboardView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
+      ["homeView","dashboardView","moneyView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
     }
 
     function openHome() {
@@ -625,6 +660,74 @@
       hideAllMainViews();
       $("homeView").classList.remove("hidden");
     }
+
+    function setMoneyStatus(msg, error=false) {
+      $('moneyStatus').textContent = msg;
+      $('moneyStatus').style.color = error ? '#ff7777' : '#ffcc66';
+    }
+    function moneyDocDate(data, fallbackField='createdAt') {
+      const raw = data?.[fallbackField];
+      if (raw?.toDate) return raw.toDate();
+      if (raw?.seconds) return new Date(Number(raw.seconds)*1000);
+      if (raw instanceof Date) return raw;
+      if (typeof raw === 'string') { const d=new Date(raw); if(!Number.isNaN(d.getTime())) return d; }
+      return null;
+    }
+    function moneyRangeBounds() {
+      const mode=$('moneyRange').value, now=new Date();
+      let start=null,end=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999);
+      if(mode==='today') start=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+      else if(mode==='week'){ const day=(now.getDay()+6)%7; start=new Date(now.getFullYear(),now.getMonth(),now.getDate()-day); }
+      else if(mode==='month') start=new Date(now.getFullYear(),now.getMonth(),1);
+      else if(mode==='year') start=new Date(now.getFullYear(),0,1);
+      else if(mode==='custom'){
+        const sv=$('moneyStart').value, ev=$('moneyEnd').value;
+        start=sv?new Date(`${sv}T00:00:00`):new Date(0);
+        end=ev?new Date(`${ev}T23:59:59.999`):new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999);
+      } else { start=new Date(0); end=new Date(8640000000000000); }
+      return {start,end};
+    }
+    function inMoneyRange(d,bounds){ return !!d && d>=bounds.start && d<=bounds.end; }
+    function renderMoney() {
+      const custom=$('moneyRange').value==='custom'; $('moneyCustomWrap').classList.toggle('hidden',!custom); $('moneyCustomEndWrap').classList.toggle('hidden',!custom);
+      const bounds=moneyRangeBounds();
+      let revenue=0,cogs=0,material=0,labor=0,eventExpenses=0;
+      const products={}, shows={};
+      for(const sale of moneySalesCache){
+        const dt=moneyDocDate(sale); if(!inMoneyRange(dt,bounds)) continue;
+        revenue+=Number(sale.total||0);
+        for(const line of (sale.lines||[])){
+          const qty=Number(line.qty||0), price=Number(line.unitPrice||0), cost=Number(line.unitCost||0);
+          cogs+=qty*cost;
+          const key=line.stockId||line.sku||line.name||'Unknown';
+          if(!products[key]) products[key]={name:line.name||'Unnamed',qty:0,revenue:0,cost:0};
+          products[key].qty+=qty; products[key].revenue+=qty*price; products[key].cost+=qty*cost;
+        }
+        const showName=sale.eventName||'General Sale';
+        if(!shows[showName]) shows[showName]={revenue:0,qty:0};
+        shows[showName].revenue+=Number(sale.total||0);
+        shows[showName].qty+=(sale.lines||[]).reduce((n,l)=>n+Number(l.qty||0),0);
+      }
+      for(const job of moneyJobsCache){ const dt=moneyDocDate(job); if(!inMoneyRange(dt,bounds)) continue; material+=Number(job.materialCost||0); labor+=Number(job.laborCost||0); }
+      for(const show of moneyShowsCache){ const dt=show.date?new Date(`${show.date}T12:00:00`):moneyDocDate(show); if(!inMoneyRange(dt,bounds)) continue; eventExpenses+=Number(show.fee||0)+Number(show.otherExpenses||0); }
+      const gross=revenue-cogs;
+      const net=revenue-cogs-eventExpenses;
+      $('moneyRevenue').textContent=`$${revenue.toFixed(2)}`; $('moneyCogs').textContent=`$${cogs.toFixed(2)}`; $('moneyGross').textContent=`$${gross.toFixed(2)}`; $('moneyMaterial').textContent=`$${material.toFixed(2)}`; $('moneyLabor').textContent=`$${labor.toFixed(2)}`; $('moneyEvents').textContent=`$${eventExpenses.toFixed(2)}`; $('moneyNet').textContent=`$${net.toFixed(2)}`;
+      const pEntries=Object.values(products).sort((a,b)=>b.revenue-a.revenue);
+      $('moneyProducts').innerHTML=pEntries.length?pEntries.map(x=>`<div class="list-item"><div><strong>${escapeHtml(x.name)}</strong><div class="small">${x.qty} sold • Cost $${x.cost.toFixed(2)}</div></div><strong>$${x.revenue.toFixed(2)}</strong></div>`).join(''):'<div class="small">No sales in this period.</div>';
+      const sEntries=Object.entries(shows).sort((a,b)=>b[1].revenue-a[1].revenue);
+      $('moneyShows').innerHTML=sEntries.length?sEntries.map(([name,x])=>`<div class="list-item"><div><strong>${escapeHtml(name)}</strong><div class="small">${x.qty} items sold</div></div><strong>$${x.revenue.toFixed(2)}</strong></div>`).join(''):'<div class="small">No sales in this period.</div>';
+      const today=new Date(); const todayRevenue=moneySalesCache.filter(s=>{const d=moneyDocDate(s);return d&&d.toDateString()===today.toDateString();}).reduce((n,s)=>n+Number(s.total||0),0); $('moneyToday').textContent=`$${todayRevenue.toFixed(2)}`;
+      setMoneyStatus(`Updated ${new Date().toLocaleTimeString()}.`);
+    }
+    function loadMoneyData(){
+      if(unsubscribeMoneySales)unsubscribeMoneySales(); if(unsubscribeMoneyJobs)unsubscribeMoneyJobs(); if(unsubscribeMoneyShows)unsubscribeMoneyShows();
+      setMoneyStatus('Loading financial data...');
+      unsubscribeMoneySales=onSnapshot(collection(db,'sales'),snap=>{moneySalesCache=snap.docs.map(d=>({id:d.id,...d.data()}));renderMoney();},e=>setMoneyStatus(e.message||'Could not load sales.',true));
+      unsubscribeMoneyJobs=onSnapshot(collection(db,'printJobs'),snap=>{moneyJobsCache=snap.docs.map(d=>({id:d.id,...d.data()}));renderMoney();},e=>setMoneyStatus(e.message||'Could not load print jobs.',true));
+      unsubscribeMoneyShows=onSnapshot(collection(db,'craftShows'),snap=>{moneyShowsCache=snap.docs.map(d=>({id:d.id,...d.data()}));renderMoney();},e=>setMoneyStatus(e.message||'Could not load craft shows.',true));
+    }
+    function openMoney(){ hideAllMainViews(); $('moneyView').classList.remove('hidden'); loadMoneyData(); renderMoney(); }
 
     function openManage() {
       stopPosCamera();
@@ -1830,6 +1933,13 @@
 
 
     $("posBtn").addEventListener("click",openPos);
+    $("moneyBtn").addEventListener("click",openMoney);
+    $("moneyTile").addEventListener("click",openMoney);
+    $("backMoneyDashboardBtn").addEventListener("click",openManage);
+    $("moneyRange").addEventListener("change",renderMoney);
+    $("moneyStart").addEventListener("change",renderMoney);
+    $("moneyEnd").addEventListener("change",renderMoney);
+    $("moneyRefreshBtn").addEventListener("click",loadMoneyData);
     $("backPosDashboardBtn").addEventListener("click",()=>{openHome();});
     $("posBarcode").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addCodeToCart(e.currentTarget.value);}});
     $("posScanBtn").addEventListener("click",startPosCamera);

@@ -1,8 +1,18 @@
-# MKCC Prints v1.2.3.12
+# MKCC Prints v1.3.0
 
-Adds safe Delete buttons to Stock Prints and Craft Shows.
+Adds the Money & Reports dashboard while preserving the working v1.2.3.12 foundation.
 
-- Stock Prints: Delete is blocked while inventory is assigned/held for a craft show.
-- Craft Shows: Delete is available only after the show is closed and all remaining inventory has been returned.
-- Shows with sales can still be deleted after closing, with a confirmation warning that the event/sales history will be permanently removed.
-- No changes to Firebase Auth, Storage, QR/barcode labels, POS, or inventory assignment logic.
+## Financial dashboard
+- Date filters: Today, This Week, This Month, This Year, All Time, Custom
+- Sales revenue from recorded POS sales
+- Cost of items sold from each sale's recorded unit cost
+- Gross profit
+- Print-job material costs
+- Print-job labor costs at the recorded $30/hour rate
+- Craft-show fees and other recorded event expenses
+- Revenue minus recorded item costs and event expenses
+- Sales by product
+- Sales by craft show
+- Live Firestore updates
+
+No Firebase Storage, photos, or Blaze billing is required.
