@@ -690,7 +690,14 @@
         sold.onclick = () => sellStock(item, 1);
         const label = document.createElement("button"); label.textContent = "🏷️ Label"; label.className="secondary"; label.onclick = () => printStockLabels(item);
         const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openStockModal(item);
-        const del = document.createElement("button"); del.textContent="Delete"; del.className="danger"; del.onclick=async()=>{if(!confirm("Delete this stock print?"))return;try{await deleteDoc(doc(db,"stockPrints",item.id));}catch(e){setStockStatus(e.message,true);}};
+        const del = document.createElement("button");
+        del.textContent="Delete"; del.className="danger";
+        del.onclick=async()=>{
+          const atShow=Number(item.craftShowQty||0);
+          if(atShow>0){return alert(`Cannot delete this stock print while ${atShow} item(s) are assigned or held for a craft show. Return the inventory first.`);}
+          if(!confirm(`Delete ${item.name||"this stock print"}? This cannot be undone.`))return;
+          try{await deleteDoc(doc(db,"stockPrints",item.id));}catch(e){setStockStatus(e.message,true);}
+        };
         actions.append(add, show, sold, label, edit, del);
         list.appendChild(row);
       });
@@ -926,8 +933,25 @@
         const view=document.createElement('button');view.textContent='Open Show';view.className='secondary';view.onclick=()=>openCraftShowDetail(show);
         const edit=document.createElement('button');edit.textContent='Edit';edit.className='secondary';edit.onclick=()=>openCraftShowModal(show);
         const toggle=document.createElement('button');toggle.textContent=show.status==='Closed'?'Reopen':'Close Show';toggle.className=show.status==='Closed'?'secondary':'danger';toggle.onclick=()=>toggleCraftShow(show);
-        a.append(view,edit,toggle);list.appendChild(row);
+        const del=document.createElement('button');del.textContent='Delete';del.className='danger';del.onclick=()=>deleteCraftShow(show);
+        a.append(view,edit,toggle,del);list.appendChild(row);
       });
+    }
+
+    async function deleteCraftShow(show){
+      const loadedCount=showLoadedCount(show);
+      if(show.status!=="Closed") return alert("Close the craft show before deleting it.");
+      if(loadedCount>0) return alert("This craft show still has inventory loaded. Return all remaining inventory before deleting the show.");
+      const sales=Number(show.salesTotal||0);
+      const warning=sales>0
+        ? `Delete ${show.name||"this craft show"}? This will permanently remove the event record and its sales history.`
+        : `Delete ${show.name||"this craft show"}? This cannot be undone.`;
+      if(!confirm(warning))return;
+      try{
+        await deleteDoc(doc(db,"craftShows",show.id));
+        $("craftShowDetail").classList.add("hidden");
+        setCraftShowStatus("Craft show deleted.");
+      }catch(e){setCraftShowStatus(e.message||"Could not delete craft show.",true);}
     }
 
     function openCraftShowDetail(show){
