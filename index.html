@@ -625,7 +625,12 @@
           new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase sign-in timed out. Check your internet connection, Firebase Authentication, and the GitHub Pages site settings.")), 15000))
         ]);
         console.log("MKCC login successful", result.user?.email);
-        setLoginStatus("Login successful — loading app...");
+        currentUser = result.user;
+        $("loginView").classList.add("hidden");
+        $("appView").classList.remove("hidden");
+        openHome();
+        $("welcome").textContent = `Logged in as ${result.user?.email || "user"}`;
+        setLoginStatus("");
       } catch (e) {
         console.error("MKCC login error:", e);
         const code = e?.code ? ` (${e.code})` : "";
@@ -2045,27 +2050,30 @@
     $("posCompleteBtn").addEventListener("click",completePosSale);
     $("posClearBtn").addEventListener("click",()=>{posCart=[];renderPosCart();setPosStatus("");});
 
-    onAuthStateChanged(auth, async user => {
+    onAuthStateChanged(auth, user => {
       currentUser = user;
       if (user) {
         $("loginView").classList.add("hidden");
         $("appView").classList.remove("hidden");
         openHome();
         $("welcome").textContent = `Logged in as ${user.email}`;
-        try {
-          await seedDefaultPrinters();
-          await seedDefaultSpool();
-          await seedFilamentPresets();
-          loadPrinters();
-          loadJobs();
-          loadCustomers();
-          loadOrders();
-          loadStock();
-          loadTodaySales();
-        } catch (e) {
-          console.error(e);
-          setPrinterStatus(e.message || "Firestore setup is not ready yet.", true);
-        }
+        (async () => {
+          try {
+            await seedDefaultPrinters();
+            await seedDefaultSpool();
+            await seedFilamentPresets();
+            loadPrinters();
+            loadJobs();
+            loadCustomers();
+            loadOrders();
+            loadStock();
+            loadTodaySales();
+            loadDefaults();
+          } catch (e) {
+            console.error("MKCC startup data error:", e);
+            setLoginStatus(e.message || "Logged in, but some cloud data could not be loaded.", true);
+          }
+        })();
       } else {
         if (unsubscribePrinters) unsubscribePrinters();
         if (unsubscribeSpools) unsubscribeSpools();
