@@ -535,9 +535,17 @@
       measurementId: "G-90KJYY77HK"
     };
 
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
+    let app, auth, db;
+    try {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    } catch (e) {
+      console.error("MKCC Firebase initialization error:", e);
+      const msg = e?.message || "Firebase initialization failed.";
+      document.addEventListener("DOMContentLoaded", () => setLoginStatus(msg, true));
+      throw e;
+    }
     const $ = id => document.getElementById(id);
 
     const DEFAULT_PRINTERS = [
@@ -611,8 +619,18 @@
       const password = $("password").value;
       if (!email || !password) return setLoginStatus("Enter your email and password.", true);
       setLoginStatus("Logging in...");
-      try { await signInWithEmailAndPassword(auth, email, password); setLoginStatus(""); }
-      catch (e) { console.error(e); setLoginStatus(e.message || "Login failed.", true); }
+      try {
+        const result = await Promise.race([
+          signInWithEmailAndPassword(auth, email, password),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase sign-in timed out. Check your internet connection, Firebase Authentication, and the GitHub Pages site settings.")), 15000))
+        ]);
+        console.log("MKCC login successful", result.user?.email);
+        setLoginStatus("Login successful — loading app...");
+      } catch (e) {
+        console.error("MKCC login error:", e);
+        const code = e?.code ? ` (${e.code})` : "";
+        setLoginStatus((e?.message || "Login failed.") + code, true);
+      }
     });
 
     $("signupBtn").addEventListener("click", async () => {

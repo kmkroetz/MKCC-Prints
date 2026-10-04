@@ -1,18 +1,9 @@
-MKCC Prints v1.4.0 — Business Defaults & Cost Model
+MKCC Prints v1.4.1 — Login Diagnostic Fix
 
-Built from v1.3.1 Product Profitability.
+Based on v1.4.0.
 
-Theme changes only:
-- Scarlet primary accent (#BA0C2F)
-- Gray secondary controls and borders
-- Dark charcoal surfaces with white text
-- Existing QR/barcode labels remain black/white
-- No feature or Firebase logic changes
-
-
-## v1.4.0 changes
-- Added Business Defaults for labor rate, default filament cost per gram, and default production/consumable cost.
-- Stock Prints now track filament grams per item and print hours per item. Print hours are informational only.
-- Stock Print production cost is material + production/consumable cost; printer-time labor is not included.
-- Print Jobs use separate extra labor hours for design/setup/finishing/assembly, using the Business Defaults labor rate.
-- Selling price remains manually controlled.
+Changes:
+- Added a 15-second Firebase sign-in timeout with a useful error message.
+- Login errors now show the Firebase error code.
+- Firebase initialization errors are surfaced instead of silently failing.
+- No business, Firestore, Stock Prints, POS, Craft Show, or Defaults logic changed.
