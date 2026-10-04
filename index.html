@@ -2051,34 +2051,38 @@
     $("posCompleteBtn").addEventListener("click",completePosSale);
     $("posClearBtn").addEventListener("click",()=>{posCart=[];renderPosCart();setPosStatus("");});
 
-    onAuthStateChanged(auth, user => {
+    onAuthStateChanged(auth, async user => {
       currentUser = user;
       if (user) {
         $("loginView").classList.add("hidden");
         $("appView").classList.remove("hidden");
         openHome();
         $("welcome").textContent = `Logged in as ${user.email}`;
-        (async () => {
-          // Do not let an optional seed/read permission failure stop the rest of the app from loading.
-          // Each cloud loader reports its own Firestore error so one collection cannot break the others.
-          const startupTasks = [
-            ["printers", seedDefaultPrinters, loadPrinters],
-            ["spools", seedDefaultSpool, loadSpools],
-            ["filament presets", seedFilamentPresets, null],
-            ["jobs", null, loadJobs],
-            ["customers", null, loadCustomers],
-            ["orders", null, loadOrders],
-            ["stock", null, loadStock],
-            ["sales", null, loadTodaySales],
-            ["business defaults", null, loadDefaults]
-          ];
-          for (const [name, seed, loader] of startupTasks) {
-            try { if (seed) await seed(); }
-            catch (e) { console.error(`MKCC ${name} seed error:`, e); }
-            try { if (loader) loader(); }
-            catch (e) { console.error(`MKCC ${name} loader error:`, e); }
-          }
-        })();
+
+        // Refresh the Firebase Auth ID token before opening Firestore listeners.
+        // This prevents Firestore from seeing a stale/missing auth token immediately after login.
+        try {
+          await user.getIdToken(true);
+        } catch (e) {
+          console.error("MKCC auth token refresh error:", e);
+        }
+
+        // Do not seed or write any Firestore data during login.
+        // Each section loads independently so one Firestore failure cannot stop the app.
+        const loaders = [
+          ["printers", loadPrinters],
+          ["spools", loadSpools],
+          ["jobs", loadJobs],
+          ["customers", loadCustomers],
+          ["orders", loadOrders],
+          ["stock", loadStock],
+          ["sales", loadTodaySales],
+          ["business defaults", loadDefaults]
+        ];
+        for (const [name, loader] of loaders) {
+          try { loader(); }
+          catch (e) { console.error(`MKCC ${name} loader error:`, e); }
+        }
       } else {
         if (unsubscribePrinters) unsubscribePrinters();
         if (unsubscribeSpools) unsubscribeSpools();
@@ -2092,6 +2096,7 @@
         $("loginView").classList.remove("hidden");
       }
     });
+
   </script>
 </body>
 </html>
