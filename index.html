@@ -115,6 +115,29 @@
           <button id="craftShowsBtn" class="secondary">Manage Craft Shows</button>
           <button id="posBtn" class="secondary">Open Point of Sale</button>
           <button id="moneyBtn" class="secondary">💰 Money & Reports</button>
+          <button id="defaultsBtn" class="secondary">⚙️ Business Defaults</button>
+        </div>
+
+        <div id="defaultsView" class="hidden">
+          <div class="topbar">
+            <h2>⚙️ Business Defaults</h2>
+            <button id="backDefaultsDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Standard values used when calculating costs. Selling prices are always controlled manually on each product.</p>
+          <div class="card" style="margin-top:14px;">
+            <label class="small" for="defaultLaborRate">Labor Rate ($/hour)</label>
+            <input id="defaultLaborRate" type="number" min="0" step="0.01" placeholder="30.00">
+            <label class="small" for="defaultFilamentCost">Default Filament Cost ($/gram)</label>
+            <input id="defaultFilamentCost" type="number" min="0" step="0.0001" placeholder="0.0100">
+            <label class="small" for="defaultProductionCost">Default Production / Consumable Cost Each ($)</label>
+            <input id="defaultProductionCost" type="number" min="0" step="0.01" placeholder="0.00">
+            <button id="saveDefaultsBtn">Save Defaults</button>
+            <div id="defaultsStatus" class="status"></div>
+          </div>
+          <div class="card" style="margin-top:14px;">
+            <strong>Cost rules</strong>
+            <div class="small" style="margin-top:8px;line-height:1.5">Stock Prints use filament/material cost and optional production/consumable cost. Printer hours are informational only and do not create labor cost. Labor is reserved for design, setup, finishing, assembly, and other work outside normal printer run time.</div>
+          </div>
         </div>
 
         <div id="moneyView" class="hidden">
@@ -286,6 +309,8 @@
           <input id="jobActualMinutes" type="number" min="0" step="1" placeholder="305">
         </div>
       </div>
+      <label class="small" for="jobLaborHours">Extra Labor Hours (design / setup / finishing / assembly)</label>
+      <input id="jobLaborHours" type="number" min="0" step="0.01" placeholder="0">
       <label class="small" for="jobOutcome">Outcome</label>
       <select id="jobOutcome">
         <option value="Pending">Pending</option>
@@ -419,8 +444,14 @@
       <input id="stockBarcode" placeholder="Barcode (optional — UPC/EAN or your own code)">
       <div class="row">
         <div><label class="small" for="stockQty">Quantity on hand</label><input id="stockQty" type="number" min="0" step="1" placeholder="0"></div>
+        <div><label class="small" for="stockGrams">Filament used per item (g)</label><input id="stockGrams" type="number" min="0" step="0.1" placeholder="25"></div>
       </div>
-      <div class="small">Craft-show inventory is assigned from the specific Craft Show. This keeps every unit tied to an actual event.</div>
+      <div class="row">
+        <div><label class="small" for="stockHours">Hours printed (reference only)</label><input id="stockHours" type="number" min="0" step="0.01" placeholder="2.5"></div>
+        <div><label class="small" for="stockExtraCost">Production / consumable cost each ($)</label><input id="stockExtraCost" type="number" min="0" step="0.01" placeholder="0.00"></div>
+      </div>
+      <div id="stockCostPreview" class="small" style="margin-top:8px">Material cost: $0.00 • Total production cost: $0.00</div>
+      <div class="small">Craft-show inventory is assigned from the specific Craft Show. Print hours are for planning only and do not add labor cost.</div>
       <div class="row">
         <div><label class="small" for="stockPrice">Selling price ($)</label><input id="stockPrice" type="number" min="0" step="0.01" placeholder="0.00"></div>
         <div><label class="small" for="stockUnitCost">Production cost each ($)</label><input id="stockUnitCost" type="number" min="0" step="0.01" placeholder="0.00"></div>
@@ -555,6 +586,8 @@
     let unsubscribeMoneySales = null;
     let unsubscribeMoneyJobs = null;
     let unsubscribeMoneyShows = null;
+    let businessDefaults = { laborRate: 30, defaultFilamentCost: 0.01, defaultProductionCost: 0 };
+    let unsubscribeDefaults = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -608,6 +641,7 @@
     $("jobGrams").addEventListener("input", updateJobCostPreview);
     $("jobEstimatedMinutes").addEventListener("input", updateJobCostPreview);
     $("jobActualMinutes").addEventListener("input", updateJobCostPreview);
+    $("jobLaborHours").addEventListener("input", updateJobCostPreview);
 
     $("customersBtn").addEventListener("click", openCustomers);
     $("customersTile").addEventListener("click", openCustomers);
@@ -624,6 +658,8 @@
     $("addStockBtn").addEventListener("click", () => openStockModal());
     $("cancelStockBtn").addEventListener("click", closeStockModal);
     $("saveStockBtn").addEventListener("click", saveStock);
+    $("stockGrams").addEventListener("input", updateStockCostPreview);
+    $("stockExtraCost").addEventListener("input", updateStockCostPreview);
     $("ordersTile").addEventListener("click", openOrders);
     $("backCustomersDashboardBtn").addEventListener("click", () => { openManage(); });
     $("backOrdersDashboardBtn").addEventListener("click", () => { openManage(); });
@@ -657,7 +693,7 @@
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["homeView","dashboardView","moneyView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
+      ["homeView","dashboardView","defaultsView","moneyView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
     }
 
     function openHome() {
@@ -769,10 +805,23 @@
       $("stockSku").value = item?.sku || "";
       $("stockBarcode").value = item?.barcode || "";
       $("stockQty").value = item?.quantityOnHand ?? "";
+      $("stockGrams").value = item?.filamentGramsPerItem ?? "";
+      $("stockHours").value = item?.printHoursPerItem ?? "";
+      $("stockExtraCost").value = item?.extraProductionCost ?? businessDefaults.defaultProductionCost;
       $("stockPrice").value = item?.sellingPrice ?? "";
       $("stockUnitCost").value = item?.unitCost ?? "";
+      updateStockCostPreview();
       $("stockNotes").value = item?.notes || "";
       $("stockModal").classList.remove("hidden");
+    }
+
+    function updateStockCostPreview(){
+      const grams=Math.max(0,Number($("stockGrams")?.value||0));
+      const extra=Math.max(0,Number($("stockExtraCost")?.value||0));
+      const material=grams*Number(businessDefaults.defaultFilamentCost||0);
+      const total=material+extra;
+      if($("stockCostPreview")) $("stockCostPreview").textContent=`Material cost: $${material.toFixed(2)} • Total production cost: $${total.toFixed(2)} (no printer-time labor)`;
+      if($("stockUnitCost") && document.activeElement!==$("stockUnitCost") && grams>0) $("stockUnitCost").value=total.toFixed(2);
     }
 
     function closeStockModal() {
@@ -803,6 +852,7 @@
         row.querySelectorAll(".job-meta")[0].textContent = `On hand: ${qty} • At craft shows: ${showQty} • Available: ${available}`;
         row.querySelectorAll(".job-meta")[1].textContent = `Assigned to shows: ${assigned} • Unassigned craft-show stock: ${unassigned}`;
         row.querySelectorAll(".job-meta")[2].textContent = `Price: $${price.toFixed(2)} • Cost: $${cost.toFixed(2)} • Est. profit each: $${profit.toFixed(2)}`;
+        row.querySelectorAll(".job-meta")[2].textContent += ` • ${Number(item.filamentGramsPerItem||0).toFixed(1)}g filament • ${Number(item.printHoursPerItem||0).toFixed(2)}h print`;
         row.querySelector(".cost").textContent = `Inventory value at cost: $${(qty * cost).toFixed(2)}`;
         const actions = row.querySelector(".printer-actions");
         const add = document.createElement("button"); add.textContent = "+1 Stock"; add.className="secondary";
@@ -831,8 +881,13 @@
       const sku = $("stockSku").value.trim();
       const barcode = $("stockBarcode").value.trim();
       const quantityOnHand = Math.max(0, Math.floor(Number($("stockQty").value || 0)));
+      const filamentGramsPerItem = Math.max(0, Number($("stockGrams").value || 0));
+      const printHoursPerItem = Math.max(0, Number($("stockHours").value || 0));
+      const extraProductionCost = Math.max(0, Number($("stockExtraCost").value || 0));
       const sellingPrice = Math.max(0, Number($("stockPrice").value || 0));
-      const unitCost = Math.max(0, Number($("stockUnitCost").value || 0));
+      const calculatedUnitCost = filamentGramsPerItem * Number(businessDefaults.defaultFilamentCost || 0) + extraProductionCost;
+      const enteredUnitCost = Math.max(0, Number($("stockUnitCost").value || 0));
+      const unitCost = filamentGramsPerItem > 0 ? calculatedUnitCost : enteredUnitCost;
       const notes = $("stockNotes").value.trim();
       if (!name) return alert("Enter a product or print name.");
       try {
@@ -842,7 +897,7 @@
         const craftShowQty = Number(existing?.craftShowQty || 0);
         const assignedCraftShowQty = Number(existing?.assignedCraftShowQty || 0);
         if (craftShowQty > quantityOnHand) return alert("Quantity on hand cannot be lower than inventory currently assigned or held for craft shows.");
-        const data = {name, sku, barcode, quantityOnHand, craftShowQty, assignedCraftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
+        const data = {name, sku, barcode, quantityOnHand, filamentGramsPerItem, printHoursPerItem, extraProductionCost, craftShowQty, assignedCraftShowQty, sellingPrice, unitCost, notes, updatedAt: serverTimestamp()};
         if (editingStockId) await updateDoc(doc(db,"stockPrints",editingStockId), data);
         else await setDoc(doc(db,"stockPrints",id), {...data, createdAt:serverTimestamp()});
         closeStockModal();
@@ -1833,10 +1888,11 @@
       const estimated = Number($("jobEstimatedMinutes").value || 0);
       const minutes = actual > 0 ? actual : estimated;
       const materialCost = spool ? grams * Number(spool.costPerGram || 0) : 0;
-      const laborCost = (minutes / 60) * 30;
+      const laborHours = Number($("jobLaborHours")?.value || 0);
+      const laborCost = laborHours * Number(businessDefaults.laborRate || 0);
       $("jobCostPreview").textContent =
         `Estimated production cost: $${(materialCost + laborCost).toFixed(2)} ` +
-        `(filament $${materialCost.toFixed(2)} + labor $${laborCost.toFixed(2)})`;
+        `(filament $${materialCost.toFixed(2)} + extra labor $${laborCost.toFixed(2)})`;
     }
 
     function openJobModal(job=null) {
@@ -1847,6 +1903,7 @@
       $("jobGrams").value = job?.filamentGrams ?? "";
       $("jobEstimatedMinutes").value = job?.estimatedMinutes ?? "";
       $("jobActualMinutes").value = job?.actualMinutes ?? "";
+      $("jobLaborHours").value = job?.laborHours ?? "";
       $("jobOutcome").value = job?.outcome || "Pending";
       $("jobNotes").value = job?.notes || "";
       populateJobSelects(job);
@@ -1889,7 +1946,7 @@
           `${printer?.name || "Unknown printer"} • ${spool ? `${spool.brand} ${spool.material} ${spool.color}` : "No spool"}`;
         row.querySelectorAll(".job-meta")[1].textContent =
           `${Number(job.filamentGrams || 0).toFixed(1)} g • Est. ${Number(job.estimatedMinutes || 0)} min • Actual ${Number(job.actualMinutes || 0)} min • ${job.outcome || "Pending"}`;
-        row.querySelector(".cost").textContent = `Production cost: $${totalCost.toFixed(2)} (material $${materialCost.toFixed(2)} + labor $${laborCost.toFixed(2)})`;
+        row.querySelector(".cost").textContent = `Production cost: $${totalCost.toFixed(2)} (material $${materialCost.toFixed(2)} + extra labor $${laborCost.toFixed(2)})`;
         const actions = row.querySelector(".printer-actions");
         const edit = document.createElement("button"); edit.textContent="Edit"; edit.className="secondary"; edit.onclick=()=>openJobModal(job);
         const del = document.createElement("button"); del.textContent="Delete"; del.className="danger";
@@ -1918,6 +1975,7 @@
       const filamentGrams = Number($("jobGrams").value || 0);
       const estimatedMinutes = Number($("jobEstimatedMinutes").value || 0);
       const actualMinutes = Number($("jobActualMinutes").value || 0);
+      const laborHours = Math.max(0, Number($("jobLaborHours").value || 0));
       const outcome = $("jobOutcome").value;
       const notes = $("jobNotes").value.trim();
       const spool = spoolsCache.find(s => s.id === spoolId);
@@ -1928,16 +1986,15 @@
       if (!Number.isFinite(estimatedMinutes) || estimatedMinutes < 0 || !Number.isFinite(actualMinutes) || actualMinutes < 0) {
         return alert("Enter valid print times.");
       }
-      const minutesForCost = actualMinutes > 0 ? actualMinutes : estimatedMinutes;
       const materialCost = filamentGrams * Number(spool?.costPerGram || 0);
-      const laborCost = (minutesForCost / 60) * 30;
+      const laborCost = laborHours * Number(businessDefaults.laborRate || 0);
       const totalCost = materialCost + laborCost;
 
       const data = {
         itemName, bedNumber, printerId, spoolId, filamentGrams,
-        estimatedMinutes, actualMinutes, outcome, notes,
+        estimatedMinutes, actualMinutes, laborHours, outcome, notes,
         materialCost, laborCost, totalCost,
-        laborRate: 30,
+        laborRate: Number(businessDefaults.laborRate || 0),
         updatedAt: serverTimestamp()
       };
       try {
@@ -1954,6 +2011,9 @@
 
     $("posBtn").addEventListener("click",openPos);
     $("moneyBtn").addEventListener("click",openMoney);
+    $("defaultsBtn").addEventListener("click",openDefaults);
+    $("backDefaultsDashboardBtn").addEventListener("click",openManage);
+    $("saveDefaultsBtn").addEventListener("click",saveDefaults);
     $("moneyTile").addEventListener("click",openMoney);
     $("backMoneyDashboardBtn").addEventListener("click",openManage);
     $("moneyRange").addEventListener("change",renderMoney);
