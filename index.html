@@ -1638,6 +1638,7 @@
       unsubscribeSpools = onSnapshot(collection(db, "spools"), snap => {
         const spools = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           .sort((a,b) => String(a.brand + a.material + a.color).localeCompare(String(b.brand + b.material + b.color)));
+        spoolsCache = spools;
         $("spoolsCount").textContent = spools.length;
         spoolsCache = spools;
         if (!$("jobsView").classList.contains("hidden")) populateJobSelects();
@@ -2058,20 +2059,24 @@
         openHome();
         $("welcome").textContent = `Logged in as ${user.email}`;
         (async () => {
-          try {
-            await seedDefaultPrinters();
-            await seedDefaultSpool();
-            await seedFilamentPresets();
-            loadPrinters();
-            loadJobs();
-            loadCustomers();
-            loadOrders();
-            loadStock();
-            loadTodaySales();
-            loadDefaults();
-          } catch (e) {
-            console.error("MKCC startup data error:", e);
-            setLoginStatus(e.message || "Logged in, but some cloud data could not be loaded.", true);
+          // Do not let an optional seed/read permission failure stop the rest of the app from loading.
+          // Each cloud loader reports its own Firestore error so one collection cannot break the others.
+          const startupTasks = [
+            ["printers", seedDefaultPrinters, loadPrinters],
+            ["spools", seedDefaultSpool, loadSpools],
+            ["filament presets", seedFilamentPresets, null],
+            ["jobs", null, loadJobs],
+            ["customers", null, loadCustomers],
+            ["orders", null, loadOrders],
+            ["stock", null, loadStock],
+            ["sales", null, loadTodaySales],
+            ["business defaults", null, loadDefaults]
+          ];
+          for (const [name, seed, loader] of startupTasks) {
+            try { if (seed) await seed(); }
+            catch (e) { console.error(`MKCC ${name} seed error:`, e); }
+            try { if (loader) loader(); }
+            catch (e) { console.error(`MKCC ${name} loader error:`, e); }
           }
         })();
       } else {
