@@ -648,7 +648,15 @@
       catch (e) { console.error(e); setLoginStatus(e.message || "Account creation failed.", true); }
     });
 
-    $("logoutBtn").addEventListener("click", () => signOut(auth));
+    $("logoutBtn").addEventListener("click", async () => {
+      try {
+        await signOut(auth);
+        // onAuthStateChanged performs the normal UI cleanup.
+      } catch (e) {
+        console.error("MKCC logout error:", e);
+        setLoginStatus(e.message || "Could not log out.", true);
+      }
+    });
     $("manageBtn").addEventListener("click", openManage);
     $("homePosBtn").addEventListener("click", openPos);
     $("backHomeBtn").addEventListener("click", openHome);
@@ -1386,7 +1394,7 @@
         stockCache = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
         $("stockCount").textContent = stockCache.reduce((sum,i)=>sum+Number(i.quantityOnHand||0),0);
         renderStock(stockCache);
-        setStockStatus("");
+        setStockStatus(stockCache.length ? `Loaded ${stockCache.length} stock print${stockCache.length===1?"":"s"}.` : "No stock prints yet.");
       }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
 
@@ -1711,7 +1719,7 @@
         printersCache = printers;
         if (!$("jobsView").classList.contains("hidden")) populateJobSelects();
         renderPrinters(printers);
-        setPrinterStatus(printers.length ? "" : "No printers yet.");
+        setPrinterStatus(printers.length ? `Loaded ${printers.length} printer${printers.length===1?"":"s"}.` : "No printers yet.");
       }, err => {
         console.error(err);
         setPrinterStatus(err.message || "Could not load printers.", true);
@@ -2032,6 +2040,62 @@
       } catch (e) { console.error(e); alert(e.message || "Could not save print job."); }
     }
 
+
+    function setDefaultsStatus(msg, error=false) {
+      $("defaultsStatus").textContent = msg;
+      $("defaultsStatus").style.color = error ? "#ff7777" : "#ffcc66";
+    }
+
+    function openDefaults() {
+      hideAllMainViews();
+      $("defaultsView").classList.remove("hidden");
+      $("defaultLaborRate").value = Number(businessDefaults.laborRate || 0);
+      $("defaultFilamentCost").value = Number(businessDefaults.defaultFilamentCost || 0);
+      $("defaultProductionCost").value = Number(businessDefaults.defaultProductionCost || 0);
+      loadDefaults();
+    }
+
+    function loadDefaults() {
+      if (unsubscribeDefaults) unsubscribeDefaults();
+      unsubscribeDefaults = onSnapshot(doc(db, "settings", "businessDefaults"), snap => {
+        if (snap.exists()) {
+          const d = snap.data() || {};
+          businessDefaults = {
+            laborRate: Number(d.laborRate ?? 30),
+            defaultFilamentCost: Number(d.defaultFilamentCost ?? 0.01),
+            defaultProductionCost: Number(d.defaultProductionCost ?? 0)
+          };
+        } else {
+          businessDefaults = { laborRate: 30, defaultFilamentCost: 0.01, defaultProductionCost: 0 };
+        }
+        $("defaultLaborRate").value = businessDefaults.laborRate;
+        $("defaultFilamentCost").value = businessDefaults.defaultFilamentCost;
+        $("defaultProductionCost").value = businessDefaults.defaultProductionCost;
+        setDefaultsStatus(snap.exists() ? "Defaults loaded." : "Using built-in defaults. Save to create your business defaults.");
+      }, err => {
+        console.error("MKCC business defaults load error:", err);
+        setDefaultsStatus(err.message || "Could not load business defaults.", true);
+      });
+    }
+
+    async function saveDefaults() {
+      const laborRate = Math.max(0, Number($("defaultLaborRate").value || 0));
+      const defaultFilamentCost = Math.max(0, Number($("defaultFilamentCost").value || 0));
+      const defaultProductionCost = Math.max(0, Number($("defaultProductionCost").value || 0));
+      if (![laborRate, defaultFilamentCost, defaultProductionCost].every(Number.isFinite)) {
+        return setDefaultsStatus("Enter valid numbers for all defaults.", true);
+      }
+      try {
+        await setDoc(doc(db, "settings", "businessDefaults"), {
+          laborRate, defaultFilamentCost, defaultProductionCost, updatedAt: serverTimestamp()
+        }, { merge: true });
+        businessDefaults = { laborRate, defaultFilamentCost, defaultProductionCost };
+        setDefaultsStatus("Business defaults saved.");
+      } catch (e) {
+        console.error("MKCC business defaults save error:", e);
+        setDefaultsStatus(e.message || "Could not save business defaults.", true);
+      }
+    }
 
     $("posBtn").addEventListener("click",openPos);
     $("moneyBtn").addEventListener("click",openMoney);

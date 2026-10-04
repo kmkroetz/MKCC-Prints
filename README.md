@@ -1,13 +1,10 @@
-MKCC Prints v1.4.4 — Startup/permissions resilience fix
+MKCC Prints v1.4.5 — Stability Fix
 
-Based on v1.4.2. Changes:
-- Cloud startup no longer stops all data loaders if one optional seed/read operation is denied.
-- Each collection loads independently and reports its own Firestore error.
-- Fixed spool cache assignment so Print Jobs can populate from loaded spools.
-- No changes to Firebase configuration, business logic, POS, Craft Shows, or Stock Print accounting model.
+Built from v1.4.5.
 
-v1.4.4 — Firestore auth/startup stability fix
-- Refreshes the Firebase Auth ID token before opening Firestore listeners.
-- Removes all automatic Firestore seed/write operations from login startup.
-- Loads each Firestore section independently so one failure cannot block the app.
-- No data deletion or Firebase configuration changes.
+Fixes:
+- Restores missing Business Defaults functions so the main script can finish registering all event handlers and Firebase auth-state handling.
+- Business Defaults stored at settings/businessDefaults.
+- Logout now reports errors instead of silently doing nothing.
+- Printer and Stock Print status messages explicitly confirm successful data loads, preventing stale permission text from remaining after a successful snapshot.
+- No changes to existing POS, Craft Show, inventory, or financial workflows.
