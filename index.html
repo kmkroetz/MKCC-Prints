@@ -116,6 +116,7 @@
           <button id="posBtn" class="secondary">Open Point of Sale</button>
           <button id="moneyBtn" class="secondary">💰 Money & Reports</button>
           <button id="defaultsBtn" class="secondary">⚙️ Business Defaults</button>
+          <button id="dealsBtn" class="secondary">🏷️ POS Deals</button>
         </div>
 
         <div id="defaultsView" class="hidden">
@@ -138,6 +139,17 @@
             <strong>Cost rules</strong>
             <div class="small" style="margin-top:8px;line-height:1.5">Stock Prints use filament/material cost and optional production/consumable cost. Printer hours are informational only and do not create labor cost. Labor is reserved for design, setup, finishing, assembly, and other work outside normal printer run time.</div>
           </div>
+        </div>
+
+        <div id="dealsView" class="hidden">
+          <div class="topbar">
+            <h2>🏷️ POS Deals</h2>
+            <button id="backDealsDashboardBtn" class="secondary">Dashboard</button>
+          </div>
+          <p>Create quantity deals and mix-and-match deals for the POS. A product can belong to one active deal group.</p>
+          <button id="addDealBtn">+ Add Deal Group</button>
+          <div id="dealsList"></div>
+          <div id="dealsStatus" class="status"></div>
         </div>
 
         <div id="moneyView" class="hidden">
@@ -464,6 +476,26 @@
     </div>
   </div>
 
+  <div id="dealModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="dealModalTitle">Add Deal Group</h2>
+      <input id="dealName" placeholder="Deal name (example: Any 3 for $7)">
+      <label class="small" for="dealProducts">Products included in this deal</label>
+      <select id="dealProducts" multiple size="8" style="height:auto;min-height:170px;"></select>
+      <div class="small" style="margin-top:8px">Hold Ctrl (Windows) or Command (Mac) to select multiple products. A product can only belong to one active deal group.</div>
+      <h3 style="margin-top:16px">Quantity Pricing</h3>
+      <div id="dealTiers"></div>
+      <button id="addDealTierBtn" class="secondary">+ Add Quantity Tier</button>
+      <div class="small" style="margin-top:8px">Example: 1 for $3, 2 for $5, 3 for $7. The POS automatically finds the best valid combination of tiers for the quantity in the cart.</div>
+      <label style="display:flex;gap:10px;align-items:center;margin-top:14px"><input id="dealActive" type="checkbox" checked style="width:auto;margin:0"> Active</label>
+      <div class="row">
+        <button id="saveDealBtn">Save Deal</button>
+        <button id="cancelDealBtn" class="secondary">Cancel</button>
+      </div>
+      <div id="dealModalStatus" class="status"></div>
+    </div>
+  </div>
+
   <div id="craftShowModal" class="modal hidden">
     <div class="modal-card">
       <h2 id="craftShowModalTitle">Add Craft Show</h2>
@@ -596,6 +628,9 @@
     let unsubscribeMoneyShows = null;
     let businessDefaults = { laborRate: 30, defaultFilamentCost: 0.01, defaultProductionCost: 0 };
     let unsubscribeDefaults = null;
+     let dealsCache = [];
+     let unsubscribeDeals = null;
+     let editingDealId = null;
 
     const setLoginStatus = (msg, error=false) => {
       $("loginStatus").textContent = msg;
@@ -724,7 +759,7 @@
     $("savePrinterBtn").addEventListener("click", savePrinter);
 
     function hideAllMainViews() {
-      ["homeView","dashboardView","defaultsView","moneyView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
+      ["homeView","dashboardView","defaultsView","dealsView","moneyView","filamentView","jobsView","printersView","customersView","ordersView","stockView","craftShowsView","posView"].forEach(id => $(id).classList.add("hidden"));
     }
 
     function openHome() {
@@ -773,7 +808,7 @@
           cogs+=qty*cost;
           const key=line.stockId||line.sku||line.name||'Unknown';
           if(!products[key]) products[key]={name:line.name||'Unnamed',qty:0,revenue:0,cost:0};
-          products[key].qty+=qty; products[key].revenue+=qty*price; products[key].cost+=qty*cost;
+          products[key].qty+=qty; products[key].revenue+=Number(line.lineTotal ?? (qty*price)); products[key].cost+=qty*cost;
         }
         const showName=sale.eventName||'General Sale';
         if(!shows[showName]) shows[showName]={revenue:0,qty:0};
@@ -1297,22 +1332,9 @@
       $("posScanStatus").style.color = error ? "#ff7777" : "#ffcc66";
     }
     function renderPosCart() {
-      const list = $("posCartList"); list.innerHTML = "";
-      let total = 0;
-      posCart.forEach((line, idx) => {
-        total += Number(line.item.sellingPrice||0) * line.qty;
-        const row = document.createElement("div"); row.className = "list-item";
-        row.innerHTML = `<div><strong></strong><div class="small"></div></div><div class="row" style="min-width:150px;"><button class="secondary">−</button><span style="padding:12px;font-weight:700;">${line.qty}</span><button class="secondary">+</button><button class="danger">Remove</button></div>`;
-        row.querySelector("strong").textContent = line.item.name || "Unnamed";
-        row.querySelector(".small").textContent = `$${Number(line.item.sellingPrice||0).toFixed(2)} each • ${line.item.barcode || line.item.sku || "No code"}`;
-        const buttons = row.querySelectorAll("button");
-        buttons[0].onclick=()=>{line.qty=Math.max(0,line.qty-1); if(!line.qty)posCart.splice(idx,1); renderPosCart();};
-        buttons[1].onclick=()=>{line.qty++; renderPosCart();};
-        buttons[2].onclick=()=>{posCart.splice(idx,1); renderPosCart();};
-        list.appendChild(row);
-      });
-      if(!posCart.length) list.innerHTML = '<p class="small">Cart is empty. Scan a stock print to begin.</p>';
-      $("posCartTotal").textContent = `$${total.toFixed(2)}`;
+      const list = $("posCartList"); list.innerHTML = ""; const calc=calculatePosPricing();
+      calc.lines.forEach((entry, idx) => { const line=entry.line; const row=document.createElement("div"); row.className="list-item"; row.innerHTML=`<div><strong></strong><div class="small"></div></div><div class="row" style="min-width:150px;"><button class="secondary">−</button><span style="padding:12px;font-weight:700;">${line.qty}</span><button class="secondary">+</button><button class="danger">Remove</button></div>`; row.querySelector('strong').textContent=line.item.name||'Unnamed'; const dealText=entry.dealNames.length?` • ${entry.dealNames.join(', ')}`:''; row.querySelector('.small').textContent=`$${(entry.total/Math.max(1,line.qty)).toFixed(2)} effective each • Regular $${Number(line.item.sellingPrice||0).toFixed(2)} • ${line.item.barcode||line.item.sku||'No code'}${dealText}`; const buttons=row.querySelectorAll('button'); buttons[0].onclick=()=>{line.qty=Math.max(0,line.qty-1);if(!line.qty)posCart.splice(idx,1);renderPosCart();}; buttons[1].onclick=()=>{line.qty++;renderPosCart();}; buttons[2].onclick=()=>{posCart.splice(idx,1);renderPosCart();}; list.appendChild(row); });
+      if(!posCart.length) list.innerHTML='<p class="small">Cart is empty. Scan a stock print to begin.</p>'; $("posCartTotal").textContent=`$${calc.total.toFixed(2)}`;
     }
     function findStockByCode(code) {
       const c=(code||"").trim(); if(!c) return null;
@@ -1340,9 +1362,9 @@
     async function completePosSale() {
       if(!posCart.length) return setPosStatus("Cart is empty.",true);
       const paymentMethod=$("posPaymentMethod").value; const show=getSelectedPosShow(); const eventName=show?.name||"";
-      const total=posCart.reduce((sum,l)=>sum+Number(l.item.sellingPrice||0)*l.qty,0);
+      const pricing=calculatePosPricing(); const total=pricing.total;
       try {
-        const saleLines=posCart.map(l=>({stockId:l.item.id,name:l.item.name,sku:l.item.sku||"",barcode:l.item.barcode||"",qty:l.qty,unitPrice:Number(l.item.sellingPrice||0),unitCost:Number(l.item.unitCost||0)}));
+        const saleLines=pricing.lines.map(x=>({stockId:x.line.item.id,name:x.line.item.name,sku:x.line.item.sku||"",barcode:x.line.item.barcode||"",qty:x.line.qty,unitPrice:x.line.qty?(x.total/x.line.qty):0,regularUnitPrice:Number(x.line.item.sellingPrice||0),unitCost:Number(x.line.item.unitCost||0),lineTotal:x.total,dealNames:x.dealNames||[]}));
         await runTransaction(db, async transaction => {
           let showData=null;
           if(show){
@@ -1398,7 +1420,7 @@
       }, err => { console.error(err); setStockStatus(err.message || "Could not load stock prints.", true); });
     }
 
-    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); if(!unsubscribeCraftShows) loadCraftShows(); refreshPosEventOptions(); renderPosCart(); loadStock(); setPosStatus(""); }
+    function openPos(){ hideAllMainViews(); $("posView").classList.remove("hidden"); if(!unsubscribeCraftShows) loadCraftShows(); if(!unsubscribeDeals) loadDeals(); refreshPosEventOptions(); renderPosCart(); loadStock(); setPosStatus(""); }
 
     function openPrinters() {
       hideAllMainViews();
@@ -2041,6 +2063,71 @@
     }
 
 
+
+    function setDealsStatus(msg,error=false){ $("dealsStatus").textContent=msg; $("dealsStatus").style.color=error?"#ff7777":"#ffcc66"; }
+    function openDeals(){ hideAllMainViews(); $("dealsView").classList.remove("hidden"); loadDeals(); }
+    function loadDeals(){
+      if(unsubscribeDeals) unsubscribeDeals();
+      unsubscribeDeals=onSnapshot(collection(db,"dealGroups"),snap=>{ dealsCache=snap.docs.map(d=>({id:d.id,...d.data()})); renderDeals(); },e=>setDealsStatus(e.message||"Could not load POS deals.",true));
+    }
+    function renderDeals(){
+      const list=$("dealsList"); list.innerHTML="";
+      if(!dealsCache.length){list.innerHTML='<div class="small">No deal groups yet.</div>';return;}
+      [...dealsCache].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).forEach(deal=>{
+        const names=(deal.stockIds||[]).map(id=>stockCache.find(x=>x.id===id)?.name||id);
+        const tiers=[...(deal.tiers||[])].sort((a,b)=>Number(a.qty)-Number(b.qty));
+        const row=document.createElement("div"); row.className="job";
+        row.innerHTML='<div class="job-head"><div><div class="job-name"></div><div class="job-meta"></div><div class="job-meta"></div></div><div class="printer-actions"></div></div>';
+        row.querySelector('.job-name').textContent=(deal.name||"Unnamed Deal")+(deal.active===false?" — Inactive":"");
+        row.querySelectorAll('.job-meta')[0].textContent=tiers.map(t=>`${t.qty} for $${Number(t.price).toFixed(2)}`).join(' • ');
+        row.querySelectorAll('.job-meta')[1].textContent=`Products: ${names.length?names.join(', '):'None assigned'}`;
+        const edit=document.createElement('button'); edit.textContent='Edit'; edit.className='secondary'; edit.onclick=()=>openDealModal(deal);
+        const del=document.createElement('button'); del.textContent='Delete'; del.className='danger'; del.onclick=async()=>{if(!confirm(`Delete ${deal.name||'this deal'}?`))return;try{await deleteDoc(doc(db,'dealGroups',deal.id));}catch(e){setDealsStatus(e.message,true);}};
+        row.querySelector('.printer-actions').append(edit,del); list.appendChild(row);
+      });
+    }
+    function populateDealProducts(selected=[]){
+      const sel=$("dealProducts"); sel.innerHTML="";
+      const selectedSet=new Set(selected);
+      [...stockCache].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).forEach(item=>{
+        const other=dealsCache.find(d=>d.id!==editingDealId && d.active!==false && (d.stockIds||[]).includes(item.id));
+        const opt=document.createElement('option'); opt.value=item.id; opt.textContent=`${item.name||'Unnamed'}${item.sku?` — ${item.sku}`:''}${other?' (already in '+(other.name||'another deal')+')':''}`; opt.disabled=!!other && !selectedSet.has(item.id); opt.selected=selectedSet.has(item.id); sel.appendChild(opt);
+      });
+    }
+    function addDealTierRow(tier={qty:'',price:''}){
+      const wrap=$("dealTiers"); const row=document.createElement('div'); row.className='row'; row.style.marginTop='8px';
+      row.innerHTML='<input type="number" min="1" step="1" placeholder="Quantity"><input type="number" min="0" step="0.01" placeholder="Deal price ($)"><button type="button" class="danger" style="width:auto">Remove</button>';
+      const inputs=row.querySelectorAll('input'); inputs[0].value=tier.qty??''; inputs[1].value=tier.price??''; row.querySelector('button').onclick=()=>row.remove(); wrap.appendChild(row);
+    }
+    function openDealModal(deal=null){
+      editingDealId=deal?.id||null; $("dealModalTitle").textContent=deal?'Edit Deal Group':'Add Deal Group'; $("dealName").value=deal?.name||''; $("dealActive").checked=deal?.active!==false; $("dealTiers").innerHTML='';
+      const tiers=(deal?.tiers||[{qty:1,price:''},{qty:2,price:''},{qty:3,price:''}]); tiers.forEach(t=>addDealTierRow(t));
+      populateDealProducts(deal?.stockIds||[]); $("dealModalStatus").textContent=''; $("dealModal").classList.remove('hidden');
+    }
+    function closeDealModal(){editingDealId=null;$("dealModal").classList.add('hidden');}
+    async function saveDeal(){
+      const name=$("dealName").value.trim(); const stockIds=[...$("dealProducts").selectedOptions].map(o=>o.value);
+      const tiers=[...$("dealTiers").children].map(r=>{const i=r.querySelectorAll('input');return {qty:Math.floor(Number(i[0].value)),price:Number(i[1].value)}}).filter(t=>Number.isFinite(t.qty)&&t.qty>0&&Number.isFinite(t.price)&&t.price>=0);
+      const unique=new Set(tiers.map(t=>t.qty));
+      if(!name)return $("dealModalStatus").textContent='Enter a deal name.'; if(!stockIds.length)return $("dealModalStatus").textContent='Select at least one product.'; if(!tiers.length||unique.size!==tiers.length)return $("dealModalStatus").textContent='Add valid quantity tiers with no duplicate quantities.';
+      tiers.sort((a,b)=>a.qty-b.qty);
+      try{const id=editingDealId||`${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const data={name,stockIds,tiers,active:$("dealActive").checked,updatedAt:serverTimestamp()}; if(editingDealId)await updateDoc(doc(db,'dealGroups',id),data);else await setDoc(doc(db,'dealGroups',id),{...data,createdAt:serverTimestamp()}); closeDealModal();}
+      catch(e){console.error(e);$("dealModalStatus").textContent=e.message||'Could not save deal.';}
+    }
+    function priceForDealQty(qty,basePrice,tiers){
+      const q=Math.max(0,Math.floor(qty)); if(!q)return {total:0,dealApplied:false}; const sorted=[...(tiers||[])].filter(t=>t.qty>0&&t.price>=0).sort((a,b)=>a.qty-b.qty); const dp=Array(q+1).fill(Infinity); dp[0]=0; const used=Array(q+1).fill(null);
+      for(let n=1;n<=q;n++){ dp[n]=dp[n-1]+basePrice; used[n]={type:'base'}; for(const t of sorted){if(t.qty<=n&&dp[n-t.qty]+t.price<dp[n]){dp[n]=dp[n-t.qty]+t.price;used[n]={type:'deal',tier:t};}}}
+      return {total:dp[q],dealApplied:dp[q] < q*basePrice-0.000001};
+    }
+    function calculatePosPricing(){
+      const pricing=posCart.map(l=>({line:l,base:Number(l.item.sellingPrice||0)*l.qty,total:Number(l.item.sellingPrice||0)*l.qty,dealNames:[]}));
+      for(const deal of dealsCache.filter(d=>d.active!==false)){
+        const eligible=pricing.filter(x=>(deal.stockIds||[]).includes(x.line.item.id)); if(!eligible.length)continue; const qty=eligible.reduce((n,x)=>n+x.line.qty,0); const baseUnit=eligible.reduce((n,x)=>n+x.line.base,0)/Math.max(1,qty);
+        const result=priceForDealQty(qty,baseUnit,deal.tiers); if(!result.dealApplied)continue; const baseTotal=eligible.reduce((n,x)=>n+x.base,0); const factor=baseTotal?result.total/baseTotal:1; eligible.forEach(x=>{x.total=x.base*factor; x.dealNames.push(deal.name||'Deal');});
+      }
+      return {lines:pricing,total:pricing.reduce((n,x)=>n+x.total,0)};
+    }
+
     function setDefaultsStatus(msg, error=false) {
       $("defaultsStatus").textContent = msg;
       $("defaultsStatus").style.color = error ? "#ff7777" : "#ffcc66";
@@ -2100,6 +2187,12 @@
     $("posBtn").addEventListener("click",openPos);
     $("moneyBtn").addEventListener("click",openMoney);
     $("defaultsBtn").addEventListener("click",openDefaults);
+    $("dealsBtn").addEventListener("click",openDeals);
+    $("backDealsDashboardBtn").addEventListener("click",openManage);
+    $("addDealBtn").addEventListener("click",()=>openDealModal());
+    $("cancelDealBtn").addEventListener("click",closeDealModal);
+    $("saveDealBtn").addEventListener("click",saveDeal);
+    $("addDealTierBtn").addEventListener("click",()=>addDealTierRow());
     $("backDefaultsDashboardBtn").addEventListener("click",openManage);
     $("saveDefaultsBtn").addEventListener("click",saveDefaults);
     $("moneyTile").addEventListener("click",openMoney);
