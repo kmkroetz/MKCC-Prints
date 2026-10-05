@@ -52,8 +52,16 @@
     .row > * { flex:1; }
     @media (max-width:560px){ .job-head{flex-direction:column;} .row{flex-direction:column;} }
     .printer-actions button { width:auto; margin-top:0; padding:8px 10px; font-size:13px; }
-    .modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; padding:20px; z-index:10; }
-    .modal-card { width:min(520px,100%); background:#1d1d1d; border:1px solid #6b6b6b; border-radius:16px; padding:20px; }
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; padding:12px; z-index:10; overflow:auto; }
+    .modal-card { width:min(520px,100%); max-height:calc(100vh - 24px); overflow-y:auto; -webkit-overflow-scrolling:touch; background:#1d1d1d; border:1px solid #6b6b6b; border-radius:16px; padding:16px; }
+    #dealModal .modal-card { width:min(500px,100%); }
+    #dealProducts { width:100%; min-height:110px !important; max-height:140px; overflow-y:auto; }
+    #dealTiers { display:flex; flex-direction:column; gap:6px; }
+    #dealTiers .row { grid-template-columns:minmax(70px,1fr) minmax(90px,1.3fr) auto; gap:6px; margin-top:0 !important; align-items:center; }
+    #dealTiers input { margin-top:0; padding:10px; }
+    #dealTiers button { margin-top:0; padding:10px; width:auto; }
+    #dealModal .small { line-height:1.35; }
+    #dealModal h3 { margin:12px 0 6px !important; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     @media (max-width:520px) { .grid,.row { grid-template-columns:1fr; } .printer { align-items:flex-start; } }
   </style>
@@ -481,12 +489,12 @@
       <h2 id="dealModalTitle">Add Deal Group</h2>
       <input id="dealName" placeholder="Deal name (example: Any 3 for $7)">
       <label class="small" for="dealProducts">Products included in this deal</label>
-      <select id="dealProducts" multiple size="8" style="height:auto;min-height:170px;"></select>
-      <div class="small" style="margin-top:8px">Hold Ctrl (Windows) or Command (Mac) to select multiple products. A product can only belong to one active deal group.</div>
+      <select id="dealProducts" multiple size="6"></select>
+      <div class="small" style="margin-top:6px">Select multiple products. On a phone, tap/hold as needed to select more than one.</div>
       <h3 style="margin-top:16px">Quantity Pricing</h3>
       <div id="dealTiers"></div>
       <button id="addDealTierBtn" class="secondary">+ Add Quantity Tier</button>
-      <div class="small" style="margin-top:8px">Example: 1 for $3, 2 for $5, 3 for $7. The POS automatically finds the best valid combination of tiers for the quantity in the cart.</div>
+      <div class="small" style="margin-top:6px">Example: 1 for $3, 2 for $5, 3 for $7. The POS finds the best valid combination.</div>
       <label style="display:flex;gap:10px;align-items:center;margin-top:14px"><input id="dealActive" type="checkbox" checked style="width:auto;margin:0"> Active</label>
       <div class="row">
         <button id="saveDealBtn">Save Deal</button>
